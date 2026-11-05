@@ -1,5 +1,5 @@
 services:
-  - type: background
+  - type: web
     name: dripzone-bot
     env: python
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
