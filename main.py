@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from flask import Flask
 
-# 1. Настройка Flask для удержания порта 10000
+# 1. Запуск Flask-сервера
 app = Flask('')
 
 
@@ -17,18 +17,21 @@ def home():
 
 
 def run_web():
-  app.run(host='0.0.0.0', port=10000)
+  port = int(os.environ.get('PORT', 10000))
+  app.run(host='0.0.0.0', port=port)
 
 
-# Запускаем веб-сервер в фоне, чтобы Render сразу видел открытый порт
-threading.Thread(target=run_web).daemon = True
+# Запускаем Flask в отдельном фоновом потоке
+t = threading.Thread(target=run_web)
+t.daemon = True
+t.start()
 
-# 2. Инициализация бота
+# 2. Инициализация бота aiogram v3
 TOKEN = '8889115088:AAGJ_IO4jvhmXm8g8c2osXmk29iCbW_ACVo'
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Кнопки магазина
+# Кнопки главного меню
 shop_keyboard = InlineKeyboardMarkup(
     inline_keyboard=[
         [InlineKeyboardButton(text='📦 Каталог', callback_data='catalog')],
