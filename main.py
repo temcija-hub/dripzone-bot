@@ -4,6 +4,7 @@ import os
 import threading
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from flask import Flask
 
 # 1. Настройка Flask-сервера для удержания порта 10000 на Render
@@ -28,11 +29,30 @@ TOKEN = '8889115088:AAGJ_IO4jvhmXm8g8c2osXmk29iCbW_ACVo'
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+# Создаем полную клавиатуру со всеми кнопками магазина
+shop_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text='📦 Каталог', callback_data='catalog')],
+        [InlineKeyboardButton(text='🛒 Кошик', callback_data='cart')],
+        [InlineKeyboardButton(text='💬 Відгуки', callback_data='reviews')],
+        [InlineKeyboardButton(text='📏 Розміри', callback_data='sizes')],
+        [
+            InlineKeyboardButton(
+                text='⚙️ Адмін панель', callback_data='admin_panel'
+            )
+        ],
+        [InlineKeyboardButton(text='📊 Статистика', callback_data='statistics')],
+    ]
+)
+
 
 # Обработчик команды /start
 @dp.message(Command('start'))
 async def send_welcome(message: types.Message):
-  await message.answer('Дрип зона на связи! Бот успешно запущен 🛒')
+  await message.answer(
+      'Вітаю у DRIPZONE Shop! Вибери потрібний розділ:',
+      reply_markup=shop_keyboard,
+  )
 
 
 # 3. Основная функция запуска бота
