@@ -1,13 +1,12 @@
 import asyncio
 import logging
 import os
-import threading
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from flask import Flask
 
-# 1. Настройка Flask-сервера для удержания порта 10000 на Render
+# 1. Сразу поднимаем Flask-сервер для Render (порт 10000)
 app = Flask('')
 
 
@@ -16,20 +15,13 @@ def home():
   return 'Bot is running!'
 
 
-def run_web():
-  app.run(host='0.0.0.0', port=10000)
-
-
-# Запускаем веб-сервер в фоновом потоке
-threading.Thread(target=run_web).daemon = True
-
 # 2. Инициализация бота aiogram v3
 TOKEN = '8889115088:AAGJ_IO4jvhmXm8g8c2osXmk29iCbW_ACVo'
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Создаем полную клавиатуру со всеми кнопками магазина
+# Кнопки магазина
 shop_keyboard = InlineKeyboardMarkup(
     inline_keyboard=[
         [InlineKeyboardButton(text='📦 Каталог', callback_data='catalog')],
@@ -46,7 +38,6 @@ shop_keyboard = InlineKeyboardMarkup(
 )
 
 
-# Обработчик команды /start
 @dp.message(Command('start'))
 async def send_welcome(message: types.Message):
   await message.answer(
@@ -55,10 +46,15 @@ async def send_welcome(message: types.Message):
   )
 
 
-# 3. Основная функция запуска бота
 async def main():
   logging.basicConfig(level=logging.INFO)
-  await dp.start_polling(bot)
+  # Запускаем поллинг бота в фоновой задаче asyncio
+  polling_task = asyncio.create_task(dp.start_polling(bot))
+
+  # Запускаем Flask на порту 10000 (он займет главный поток и порт)
+  app.run(host='0.0.0.0', port=10000)
+
+  await polling_task
 
 
 if __name__ == '__main__':
