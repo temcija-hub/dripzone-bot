@@ -21,7 +21,6 @@ ADMIN_ID = 2125409043
 router = Router()
 
 CATEGORIES_UA = ["Футболки", "Худі", "Кофти", "Штани", "Кросівки", "Аксесуари"]
-CATEGORIES_RU = ["Футболки", "Худи", "Кофты", "Брюки", "Кроссовки", "Аксессуары"]
 
 
 class AddProduct(StatesGroup):
@@ -29,8 +28,7 @@ class AddProduct(StatesGroup):
   name = State()
   price = State()
   sizes = State()
-  desc_ua = State()
-  desc_ru = State()
+  description = State()
   photo = State()
 
 
@@ -50,15 +48,13 @@ def init_db():
             name TEXT,
             price TEXT,
             sizes TEXT,
-            desc_ua TEXT,
-            desc_ru TEXT,
+            description TEXT,
             photo_id TEXT
         )
     """)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            lang TEXT DEFAULT 'uk'
+            user_id INTEGER PRIMARY KEY
         )
     """)
   cursor.execute("""
@@ -78,54 +74,24 @@ def init_db():
   conn.close()
 
 
-def get_user_lang(user_id: int):
-  conn = sqlite3.connect("shop.db")
-  cursor = conn.cursor()
-  cursor.execute("SELECT lang FROM users WHERE user_id = ?", (user_id,))
-  row = cursor.fetchone()
-  conn.close()
-  return row[0] if row else "uk"
-
-
 def get_main_keyboard(user_id: int):
-  lang = get_user_lang(user_id)
-
-  if lang == "ru":
-    keyboard = [
-        [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Корзина")],
+  keyboard = [
+      [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")],
+      [
+          KeyboardButton(text="📞 Зв'язок з менеджером"),
+          KeyboardButton(text="⭐ Відгуки"),
+      ],
+      [KeyboardButton(text="📏 Розміри")],
+  ]
+  if user_id == ADMIN_ID:
+    keyboard.append([KeyboardButton(text="➕ Додати товар")])
+    keyboard.append(
         [
-            KeyboardButton(text="📞 Связь с менеджером"),
-            KeyboardButton(text="⭐ Отзывы"),
-        ],
-        [KeyboardButton(text="📏 Размеры")],
-    ]
-    if user_id == ADMIN_ID:
-      keyboard.append([KeyboardButton(text="➕ Добавить товар")])
-      keyboard.append(
-          [
-              KeyboardButton(text="✏️ Изменить товар"),
-              KeyboardButton(text="🗑 Удалить товар"),
-          ]
-      )
-      keyboard.append([KeyboardButton(text="📊 Статистика")])
-  else:
-    keyboard = [
-        [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")],
-        [
-            KeyboardButton(text="📞 Зв'язок з менеджером"),
-            KeyboardButton(text="⭐ Відгуки"),
-        ],
-        [KeyboardButton(text="📏 Розміри")],
-    ]
-    if user_id == ADMIN_ID:
-      keyboard.append([KeyboardButton(text="➕ Додати товар")])
-      keyboard.append(
-          [
-              KeyboardButton(text="✏️ Змінити товар"),
-              KeyboardButton(text="🗑 Видалити товар"),
-          ]
-      )
-      keyboard.append([KeyboardButton(text="📊 Статистика")])
+            KeyboardButton(text="✏️ Змінити товар"),
+            KeyboardButton(text="🗑 Видалити товар"),
+        ]
+    )
+    keyboard.append([KeyboardButton(text="📊 Статистика")])
 
   return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -136,63 +102,23 @@ async def cmd_start(message: Message):
 
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
-  cursor.execute(
-      "INSERT OR IGNORE INTO users (user_id, lang) VALUES (?, 'uk')", (user_id,)
-  )
+  cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
   conn.commit()
   conn.close()
 
-  keyboard = InlineKeyboardMarkup(
-      inline_keyboard=[
-          [
-              InlineKeyboardButton(
-                  text="🇺🇦 Українська", callback_data="setlang_uk"
-              ),
-              InlineKeyboardButton(
-                  text="🇷🇺 Русский", callback_data="setlang_ru"
-              ),
-          ]
-      ]
-  )
-  await message.answer(
-      "Оберіть мову / Выберите язык:", reply_markup=keyboard
-  )
-
-
-@router.callback_query(F.data.startswith("setlang_"))
-async def process_language_choice(callback: CallbackQuery):
-  user_id = callback.from_user.id
-  lang = callback.data.split("_")[1]
-
-  conn = sqlite3.connect("shop.db")
-  cursor = conn.cursor()
-  cursor.execute("UPDATE users SET lang = ? WHERE user_id = ?", (lang, user_id))
-  conn.commit()
-  conn.close()
-
-  await callback.message.delete()
   keyboard = get_main_keyboard(user_id)
-
-  text = (
-      "Язык успешно изменен на русский! Добро пожаловать в магазин DripZone!"
-      if lang == "ru"
-      else "Мову успішно змінено на українську! Вітаю у магазині DripZone!"
+  await message.answer(
+      "Вітаю у магазині DripZone! Головне меню:", reply_markup=keyboard
   )
-  await callback.message.answer(text, reply_markup=keyboard)
-  await callback.answer()
 
 
 @router.message(F.text.in_(["🛍 Каталог"]))
 async def show_catalog_categories(message: Message):
-  user_id = message.from_user.id
-  lang = get_user_lang(user_id)
-  categories = CATEGORIES_RU if lang == "ru" else CATEGORIES_UA
-
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
 
   keyboard_list = []
-  for cat in categories:
+  for cat in CATEGORIES_UA:
     cursor.execute(
         "SELECT COUNT(*) FROM products WHERE category = ?", (cat,)
     )
@@ -205,26 +131,18 @@ async def show_catalog_categories(message: Message):
 
   conn.close()
   keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_list)
-
-  text = (
-      "Выберите категорию товаров:"
-      if lang == "ru"
-      else "Оберіть категорію товарів:"
-  )
-  await message.answer(text, reply_markup=keyboard)
+  await message.answer("Оберіть категорію товарів:", reply_markup=keyboard)
 
 
 @router.callback_query(F.data.startswith("cat_"))
 async def show_products_by_category(callback: CallbackQuery):
   category = callback.data.split("_", 1)[1]
-  user_id = callback.from_user.id
-  lang = get_user_lang(user_id)
 
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
   cursor.execute(
       """
-        SELECT id, name, price, sizes, desc_ua, desc_ru, photo_id 
+        SELECT id, name, price, sizes, description, photo_id 
         FROM products WHERE category = ?
     """,
       (category,),
@@ -235,47 +153,33 @@ async def show_products_by_category(callback: CallbackQuery):
   await callback.message.delete()
 
   if not products:
-    msg = (
-        f"В категории <b>{category}</b> пока нет товаров."
-        if lang == "ru"
-        else f"У категорії <b>{category}</b> наразі немає товарів."
+    await callback.message.answer(
+        f"У категорії <b>{category}</b> наразі немає товарів.", parse_mode="HTML"
     )
-    await callback.message.answer(msg, parse_mode="HTML")
     return
 
-  header = (
-      f"📦 Товары в категории <b>{category}</b>:"
-      if lang == "ru"
-      else f"📦 Товари в категорії <b>{category}</b>:"
+  await callback.message.answer(
+      f"📦 Товари в категорії <b>{category}</b>:", parse_mode="HTML"
   )
-  await callback.message.answer(header, parse_mode="HTML")
 
   for prod in products:
-    prod_id, name, price, sizes, desc_ua, desc_ru, photo_id = prod
-    description = desc_ru if lang == "ru" else desc_ua
+    prod_id, name, price, sizes, description, photo_id = prod
 
-    if lang == "ru":
-      text = (
-          f"🆔 <b>ID товара:</b> {prod_id}\n"
-          f"🏷 <b>{name}</b>\n"
-          f"💵 Цена: {price}\n"
-          f"📏 Размеры: {sizes}\n"
-          f"📝 Описание: {description}"
-      )
-      btn_text = "🛒 Добавить в корзину"
-    else:
-      text = (
-          f"🆔 <b>ID товару:</b> {prod_id}\n"
-          f"🏷 <b>{name}</b>\n"
-          f"💵 Ціна: {price}\n"
-          f"📏 Розміри: {sizes}\n"
-          f"📝 Опис: {description}"
-      )
-      btn_text = "🛒 Додати в кошик"
+    text = (
+        f"🆔 <b>ID товару:</b> {prod_id}\n"
+        f"🏷 <b>{name}</b>\n"
+        f"💵 Ціна: {price}\n"
+        f"📏 Розміри: {sizes}\n"
+        f"📝 Опис: {description}"
+    )
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=btn_text, callback_data=f"buy_{prod_id}")]
+            [
+                InlineKeyboardButton(
+                    text="🛒 Додати в кошик", callback_data=f"buy_{prod_id}"
+                )
+            ]
         ]
     )
 
@@ -292,7 +196,6 @@ async def show_products_by_category(callback: CallbackQuery):
 async def add_to_cart(callback: CallbackQuery):
   prod_id = callback.data.split("_")[1]
   user_id = callback.from_user.id
-  lang = get_user_lang(user_id)
 
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
@@ -302,18 +205,12 @@ async def add_to_cart(callback: CallbackQuery):
   conn.commit()
   conn.close()
 
-  alert_text = (
-      "✅ Товар добавлен в корзину!"
-      if lang == "ru"
-      else "✅ Товар додано до кошику!"
-  )
-  await callback.answer(alert_text, show_alert=True)
+  await callback.answer("✅ Товар додано до кошику!", show_alert=True)
 
 
-@router.message(F.text.in_(["🛒 Кошик", "🛒 Корзина"]))
+@router.message(F.text.in_(["🛒 Кошик"]))
 async def show_cart(message: Message):
   user_id = message.from_user.id
-  lang = get_user_lang(user_id)
 
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
@@ -330,46 +227,27 @@ async def show_cart(message: Message):
   conn.close()
 
   if not items:
-    text = (
-        "Ваша корзина пуста 🛒" if lang == "ru" else "Ваш кошик порожній 🛒"
-    )
-    await message.answer(text)
+    await message.answer("Ваш кошик порожній 🛒")
     return
 
-  text = "🛒 <b>Ваша корзина:</b>\n\n" if lang == "ru" else "🛒 <b>Ваш кошик:</b>\n\n"
+  text = "🛒 <b>Ваш кошик:</b>\n\n"
   for item in items:
     text += f"▪️ {item[1]} — <b>{item[2]}</b>\n"
 
-  if lang == "ru":
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📦 Оформить заказ", callback_data="checkout"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🗑 Очистить корзину", callback_data="clear_cart"
-                )
-            ],
-        ]
-    )
-  else:
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📦 Оформити замовлення", callback_data="checkout"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🗑 Очистити кошик", callback_data="clear_cart"
-                )
-            ],
-        ]
-    )
+  kb = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text="📦 Оформити замовлення", callback_data="checkout"
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="🗑 Очистити кошик", callback_data="clear_cart"
+              )
+          ],
+      ]
+  )
 
   await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
@@ -377,7 +255,6 @@ async def show_cart(message: Message):
 @router.callback_query(F.data == "clear_cart")
 async def clear_cart(callback: CallbackQuery):
   user_id = callback.from_user.id
-  lang = get_user_lang(user_id)
 
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
@@ -385,8 +262,7 @@ async def clear_cart(callback: CallbackQuery):
   conn.commit()
   conn.close()
 
-  msg = "🗑 Корзина очищена!" if lang == "ru" else "🗑 Кошик очищено!"
-  await callback.message.edit_text(msg)
+  await callback.message.edit_text("🗑 Кошик очищено!")
   await callback.answer()
 
 
@@ -395,7 +271,6 @@ async def checkout_order(callback: CallbackQuery):
   user_id = callback.from_user.id
   username = callback.from_user.username
   name = callback.from_user.full_name
-  lang = get_user_lang(user_id)
 
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
@@ -411,21 +286,18 @@ async def checkout_order(callback: CallbackQuery):
   items = cursor.fetchall()
 
   cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
-  cursor.execute("INSERT INTO orders (user_id, total_price) VALUES (?, ?)", (user_id, "Оформлено"))
+  cursor.execute(
+      "INSERT INTO orders (user_id, total_price) VALUES (?, ?)",
+      (user_id, "Оформлено"),
+  )
   conn.commit()
   conn.close()
 
   if not items:
-    await callback.answer(
-        "Корзина пуста!" if lang == "ru" else "Кошик порожній!", show_alert=True
-    )
+    await callback.answer("Кошик порожній!", show_alert=True)
     return
 
-  order_text = (
-      f"🚨 <b>Новый заказ!</b>\n\nОт: {name} (@{username}, ID: <code>{user_id}</code>)\n\n"
-      if lang == "ru"
-      else f"🚨 <b>Нове замовлення!</b>\n\nВід: {name} (@{username}, ID: <code>{user_id}</code>)\n\n"
-  )
+  order_text = f"🚨 <b>Нове замовлення!</b>\n\nВід: {name} (@{username}, ID: <code>{user_id}</code>)\n\n"
   for item in items:
     order_text += f"▪️ {item[1]} — {item[2]}\n"
 
@@ -434,58 +306,48 @@ async def checkout_order(callback: CallbackQuery):
   except Exception as e:
     print(f"Не удалось отправить заказ админу: {e}")
 
-  success_msg = (
-      "✅ Заказ успешно оформлен! Менеджер свяжется с вами в ближайшее время."
-      if lang == "ru"
-      else "✅ Замовлення успішно оформлено! Менеджер зв'яжеться з вами найближчим часом."
+  await callback.message.edit_text(
+      "✅ Замовлення успішно оформлено! Менеджер зв'яжеться з вами найближчим"
+      " часом."
   )
-  await callback.message.edit_text(success_msg)
   await callback.answer()
 
 
-@router.message(F.text.in_(["📞 Зв'язок з менеджером", "📞 Связь с менеджером"]))
+@router.message(F.text.in_(["📞 Зв'язок з менеджером"]))
 async def contact_manager(message: Message):
-  user_id = message.from_user.id
-  lang = get_user_lang(user_id)
-  text = (
-      "По поводу заказов обращайтесь к менеджеру: @Armenhik_gang"
-      if lang == "ru"
-      else "З приводу замовлень звертайтесь до менеджера: @Armenhik_gang"
+  await message.answer(
+      "З приводу замовлень звертайтесь до менеджера: @Armenhik_gang"
   )
-  await message.answer(text)
 
 
-@router.message(F.text.in_(["⭐ Відгуки", "⭐ Отзывы"]))
+@router.message(F.text.in_(["⭐ Відгуки"]))
 async def show_reviews(message: Message):
-  user_id = message.from_user.id
-  lang = get_user_lang(user_id)
-  btn_text = (
-      "💬 Перейти в канал с отзывами"
-      if lang == "ru"
-      else "💬 Перейти до каналу з відгуками"
-  )
-  resp_text = (
-      "Посмотреть реальные отзывы наших покупателей можно в нашем канале:"
-      if lang == "ru"
-      else "Переглянути реальні відгуки наших покупців можна у нашому каналі:"
-  )
-
   keyboard = InlineKeyboardMarkup(
       inline_keyboard=[
-          [InlineKeyboardButton(text=btn_text, url="https://t.me/dripproe")]
+          [
+              InlineKeyboardButton(
+                  text="💬 Перейти до каналу з відгуками",
+                  url="https://t.me/dripproe",
+              )
+          ]
       ]
   )
-  await message.answer(resp_text, reply_markup=keyboard)
+  await message.answer(
+      "Переглянути реальні відгуки наших покупців можна у нашому каналі:",
+      reply_markup=keyboard,
+  )
 
 
-@router.message(F.text.in_(["📏 Розміри", "📏 Размеры"]))
+@router.message(F.text.in_(["📏 Розміри"]))
 async def show_sizes(message: Message):
-  user_id = message.from_user.id
-  lang = get_user_lang(user_id)
   text = (
-      "📐 <b>Таблица размеров:</b>\n\nS — рост 160-170\nM — рост 170-175\nL — рост 175-182\nXL — рост 182+"
-      if lang == "ru"
-      else "📐 <b>Таблиця розмірів:</b>\n\nS — зріст 160-170\nM — зріст 170-175\nL — зріст 175-182\nXL — зріст 182+"
+      "📐 <b>Таблиця розмірів:</b>\n\n"
+      "<b>Штани:</b>\n"
+      "• Розмір S: ширина (напівпояс) — 38 см, довжина — 98 см\n"
+      "• Розмір M: ширина (напівпояс) — 41 см, довжина — 101 см\n\n"
+      "Матеріал: бавовна ✅\n"
+      "Якість 1:1 оригінал ✅\n\n"
+      "Доставка 1-2 дні 📦"
   )
   await message.answer(text, parse_mode="HTML")
 
@@ -493,7 +355,7 @@ async def show_sizes(message: Message):
 @router.message(F.text.in_(["📊 Статистика"]))
 async def show_statistics(message: Message):
   if message.from_user.id != ADMIN_ID:
-    await message.answer("❌ У вас нет прав.")
+    await message.answer("❌ У вас немає прав.")
     return
 
   conn = sqlite3.connect("shop.db")
@@ -513,27 +375,27 @@ async def show_statistics(message: Message):
   conn.close()
 
   stats_text = (
-      f"📊 <b>Статистика магазина DripZone:</b>\n\n"
-      f"👥 <b>Пользователей в боте:</b> {total_users}\n"
-      f"🛒 <b>Сделано заказов:</b> {total_orders}\n"
-      f"📦 <b>Всего товаров в базе:</b> {total_products}\n\n"
+      f"📊 <b>Статистика магазину DripZone:</b>\n\n"
+      f"👥 <b>Користувачів у боті:</b> {total_users}\n"
+      f"🛒 <b>Зроблено замовлень:</b> {total_orders}\n"
+      f"📦 <b>Всього товарів у базі:</b> {total_products}\n\n"
   )
 
   if products:
-    stats_text += "<b>Список товаров:</b>\n"
+    stats_text += "<b>Список товарів:</b>\n"
     for prod_id, name, cat, price in products:
       stats_text += f"• ID {prod_id} [{cat}]: {name} — {price}\n"
   else:
-    stats_text += "<i>Каталог пока пуст.</i>"
+    stats_text += "<i>Каталог поки порожній.</i>"
 
   await message.answer(stats_text, parse_mode="HTML")
 
 
-# ================= ДОБАВЛЕНИЕ ТОВАРА (АДМИН) =================
-@router.message(F.text.in_(["➕ Додати товар", "➕ Добавить товар"]))
+# ================= ДОДАВАННЯ ТОВАРУ (АДМІН) =================
+@router.message(F.text.in_(["➕ Додати товар"]))
 async def start_add_product(message: Message, state: FSMContext):
   if message.from_user.id != ADMIN_ID:
-    await message.answer("❌ У вас нет прав.")
+    await message.answer("❌ У вас немає прав.")
     return
 
   keyboard_list = []
@@ -544,7 +406,8 @@ async def start_add_product(message: Message, state: FSMContext):
 
   keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_list)
   await message.answer(
-      "Оберіть категорію для нового товару (або напишіть /cancel для скасування):",
+      "Оберіть категорію для нового товару (або напишіть /cancel для"
+      " скасування):",
       reply_markup=keyboard,
   )
   await state.set_state(AddProduct.category)
@@ -580,20 +443,13 @@ async def process_price(message: Message, state: FSMContext):
 @router.message(AddProduct.sizes)
 async def process_sizes(message: Message, state: FSMContext):
   await state.update_data(sizes=message.text)
-  await state.set_state(AddProduct.desc_ua)
-  await message.answer("Введіть опис товару <b>українською</b>:", parse_mode="HTML")
+  await state.set_state(AddProduct.description)
+  await message.answer("Введіть опис товару:")
 
 
-@router.message(AddProduct.desc_ua)
-async def process_desc_ua(message: Message, state: FSMContext):
-  await state.update_data(desc_ua=message.text)
-  await state.set_state(AddProduct.desc_ru)
-  await message.answer("Введіть опис товару <b>російською</b>:", parse_mode="HTML")
-
-
-@router.message(AddProduct.desc_ru)
-async def process_desc_ru(message: Message, state: FSMContext):
-  await state.update_data(desc_ru=message.text)
+@router.message(AddProduct.description)
+async def process_description(message: Message, state: FSMContext):
+  await state.update_data(description=message.text)
   await state.set_state(AddProduct.photo)
   await message.answer("Надішліть фото товару:")
 
@@ -607,50 +463,36 @@ async def process_photo(message: Message, state: FSMContext):
   cursor = conn.cursor()
   cursor.execute(
       """
-        INSERT INTO products (category, name, price, sizes, desc_ua, desc_ru, photo_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO products (category, name, price, sizes, description, photo_id)
+        VALUES (?, ?, ?, ?, ?, ?)
     """,
       (
           data["category"],
           data["name"],
           data["price"],
           data["sizes"],
-          data["desc_ua"],
-          data["desc_ru"],
+          data["description"],
           photo_id,
       ),
   )
   conn.commit()
   conn.close()
 
-  user_id = message.from_user.id
-  lang = get_user_lang(user_id)
-  success_msg = (
-      "✅ Товар успешно добавлен!" if lang == "ru" else "✅ Товар успішно додано!"
-  )
-
   await message.answer(
-      success_msg, reply_markup=get_main_keyboard(user_id)
+      "✅ Товар успішно додано!", reply_markup=get_main_keyboard(message.from_user.id)
   )
   await state.clear()
 
 
 @router.message(AddProduct.photo)
 async def process_photo_invalid(message: Message):
-  user_id = message.from_user.id
-  lang = get_user_lang(user_id)
-  text = (
-      "Пожалуйста, отправьте именно фото товара."
-      if lang == "ru"
-      else "Будь ласка, надішліть саме фото товару."
-  )
-  await message.answer(text)
+  await message.answer("Будь ласка, надішліть саме фото товару.")
 
 
-@router.message(F.text.in_(["🗑 Видалити товар", "🗑 Удалить товар"]))
+@router.message(F.text.in_(["🗑 Видалити товар"]))
 async def start_delete_product(message: Message):
   if message.from_user.id != ADMIN_ID:
-    await message.answer("❌ У вас нет прав.")
+    await message.answer("❌ У вас немає прав.")
     return
 
   conn = sqlite3.connect("shop.db")
@@ -659,16 +501,8 @@ async def start_delete_product(message: Message):
   products = cursor.fetchall()
   conn.close()
 
-  user_id = message.from_user.id
-  lang = get_user_lang(user_id)
-
   if not products:
-    text = (
-        "В базе нет товаров для удаления."
-        if lang == "ru"
-        else "В базі немає товарів для видалення."
-    )
-    await message.answer(text)
+    await message.answer("В базі немає товарів для видалення.")
     return
 
   keyboard_list = []
@@ -681,19 +515,12 @@ async def start_delete_product(message: Message):
     ])
 
   keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_list)
-  text = (
-      "Выберите товар для удаления:"
-      if lang == "ru"
-      else "Оберіть товар для видалення:"
-  )
-  await message.answer(text, reply_markup=keyboard)
+  await message.answer("Оберіть товар для видалення:", reply_markup=keyboard)
 
 
 @router.callback_query(F.data.startswith("del_"))
 async def process_delete_callback(callback: CallbackQuery):
   prod_id = callback.data.split("_")[1]
-  user_id = callback.from_user.id
-  lang = get_user_lang(user_id)
 
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
@@ -701,19 +528,16 @@ async def process_delete_callback(callback: CallbackQuery):
   conn.commit()
   conn.close()
 
-  msg = (
-      f"✅ Товар с ID {prod_id} успешно удален из базы!"
-      if lang == "ru"
-      else f"✅ Товар з ID {prod_id} успішно видалено з бази!"
+  await callback.message.edit_text(
+      f"✅ Товар з ID {prod_id} успішно видалено з бази!"
   )
-  await callback.message.edit_text(msg)
   await callback.answer()
 
 
-@router.message(F.text.in_(["✏️ Змінити товар", "✏️ Изменить товар"]))
+@router.message(F.text.in_(["✏️ Змінити товар"]))
 async def start_edit_product(message: Message, state: FSMContext):
   if message.from_user.id != ADMIN_ID:
-    await message.answer("❌ У вас нет прав.")
+    await message.answer("❌ У вас немає прав.")
     return
 
   conn = sqlite3.connect("shop.db")
@@ -722,16 +546,8 @@ async def start_edit_product(message: Message, state: FSMContext):
   products = cursor.fetchall()
   conn.close()
 
-  user_id = message.from_user.id
-  lang = get_user_lang(user_id)
-
   if not products:
-    text = (
-        "В базе нет товаров для редактирования."
-        if lang == "ru"
-        else "В базі немає товарів для редагування."
-    )
-    await message.answer(text)
+    await message.answer("В базі немає товарів для редагування.")
     return
 
   keyboard_list = []
@@ -744,66 +560,36 @@ async def start_edit_product(message: Message, state: FSMContext):
     ])
 
   keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_list)
-  text = (
-      "Выберите товар, который хотите изменить:"
-      if lang == "ru"
-      else "Оберіть товар, який хочете змінити:"
-  )
-  await message.answer(text, reply_markup=keyboard)
+  await message.answer("Оберіть товар, який хочете змінити:", reply_markup=keyboard)
 
 
 @router.callback_query(F.data.startswith("edit_"))
 async def choose_field_to_edit(callback: CallbackQuery, state: FSMContext):
   prod_id = callback.data.split("_")[1]
   await state.update_data(product_id=prod_id)
-  user_id = callback.from_user.id
-  lang = get_user_lang(user_id)
 
-  if lang == "ru":
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="💵 Изменить цену", callback_data="field_price"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📏 Изменить размеры", callback_data="field_sizes"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📝 Изменить описание",
-                    callback_data="field_description",
-                )
-            ],
-        ]
-    )
-    msg = "Что именно вы хотите изменить в этом товаре?"
-  else:
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="💵 Змінити ціну", callback_data="field_price"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📏 Змінити розміри", callback_data="field_sizes"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📝 Змінити опис", callback_data="field_description"
-                )
-            ],
-        ]
-    )
-    msg = "Що саме ви хочете змінити в цьому товарі?"
-
-  await callback.message.edit_text(msg, reply_markup=kb)
+  kb = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text="💵 Змінити ціну", callback_data="field_price"
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="📏 Змінити розміри", callback_data="field_sizes"
+              )
+          ],
+          [
+              InlineKeyboardButton(
+                  text="📝 Змінити опис", callback_data="field_description"
+              )
+          ],
+      ]
+  )
+  await callback.message.edit_text(
+      "Що саме ви хочете змінити в цьому товарі?", reply_markup=kb
+  )
   await state.set_state(EditProduct.select_field)
   await callback.answer()
 
@@ -814,23 +600,13 @@ async def choose_field_to_edit(callback: CallbackQuery, state: FSMContext):
 async def process_field_choice(callback: CallbackQuery, state: FSMContext):
   field = callback.data.split("_")[1]
   await state.update_data(field=field)
-  user_id = callback.from_user.id
-  lang = get_user_lang(user_id)
 
-  if lang == "ru":
-    if field == "description":
-      msg = "Введите новое описание:"
-    elif field == "price":
-      msg = "Введите новую цену:"
-    else:
-      msg = "Введите новые размеры:"
+  if field == "description":
+    msg = "Введіть новий опис:"
+  elif field == "price":
+    msg = "Введіть нову ціну:"
   else:
-    if field == "description":
-      msg = "Введіть новий опис:"
-    elif field == "price":
-      msg = "Введіть нову ціну:"
-    else:
-      msg = "Введіть нові розміри:"
+    msg = "Введіть нові розміри:"
 
   await callback.message.edit_text(msg, parse_mode="HTML")
   await state.set_state(EditProduct.new_value)
@@ -846,28 +622,15 @@ async def save_new_field_value(message: Message, state: FSMContext):
 
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
-
-  if field == "description":
-    cursor.execute(
-        "UPDATE products SET desc_ua = ?, desc_ru = ? WHERE id = ?",
-        (new_value, new_value, prod_id),
-    )
-  else:
-    query = f"UPDATE products SET {field} = ? WHERE id = ?"
-    cursor.execute(query, (new_value, prod_id))
-
+  query = f"UPDATE products SET {field} = ? WHERE id = ?"
+  cursor.execute(query, (new_value, prod_id))
   conn.commit()
   conn.close()
 
-  user_id = message.from_user.id
-  lang = get_user_lang(user_id)
-  msg = (
-      "✅ Параметр товара успешно обновлен!"
-      if lang == "ru"
-      else "✅ Параметр товару успішно оновлено!"
+  await message.answer(
+      "✅ Параметр товару успішно оновлено!",
+      reply_markup=get_main_keyboard(message.from_user.id),
   )
-
-  await message.answer(msg, reply_markup=get_main_keyboard(user_id))
   await state.clear()
 
 
@@ -877,13 +640,12 @@ async def cancel_handler(message: Message, state: FSMContext):
   if current_state is None:
     return
   await state.clear()
-  user_id = message.from_user.id
-  lang = get_user_lang(user_id)
-  msg = "❌ Действие отменено." if lang == "ru" else "❌ Дію скасовано."
-  await message.answer(msg, reply_markup=get_main_keyboard(user_id))
+  await message.answer(
+      "❌ Дію скасовано.", reply_markup=get_main_keyboard(message.from_user.id)
+  )
 
 
-# --- Flask для Render (чтобы хостинг не отключал бота) ---
+# --- Flask для Render ---
 from flask import Flask
 import threading
 
@@ -904,12 +666,10 @@ async def main():
   init_db()
   logging.basicConfig(level=logging.INFO)
 
-  # Запуск Flask-сервера в отдельном потоке для Render
   flask_thread = threading.Thread(target=run_flask)
   flask_thread.daemon = True
   flask_thread.start()
 
-  # Безопасное получение токена из переменных окружения
   TOKEN = os.environ.get("BOT_TOKEN")
   bot = Bot(token=TOKEN)
   dp = Dispatcher(storage=MemoryStorage())
