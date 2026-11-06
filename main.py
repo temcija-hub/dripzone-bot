@@ -15,7 +15,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # ID администратора (при необходимости измени на свой Telegram ID)
-ADMIN_ID = 123456789  
+ADMIN_ID = 2125409043  
 
 
 # Состояния для выбора языка и товаров
