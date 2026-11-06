@@ -3,7 +3,7 @@ import logging
 import os
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from flask import Flask
 from threading import Thread
 
@@ -60,8 +60,18 @@ PRODUCTS = {
     },
 }
 
+# --- КЛАВИАТУРА ПОД КОНТРОЛЕЙ (ВНИЗУ) ---
+def get_reply_keyboard():
+  return ReplyKeyboardMarkup(
+      keyboard=[
+          [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")],
+          [KeyboardButton(text="📏 Розміри"), KeyboardButton(text="⭐ Відгуки")],
+          [KeyboardButton(text="📞 З'вязок з менеджером")]
+      ],
+      resize_keyboard=True
+  )
 
-def get_main_keyboard(user_id):
+def get_admin_keyboard(user_id):
   keyboard = [
       [
           InlineKeyboardButton(text="🛍 Каталог", callback_data="catalog"),
@@ -82,17 +92,50 @@ def get_main_keyboard(user_id):
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-  keyboard = get_main_keyboard(message.from_user.id)
-  
-  # Спочатку примусово прибираємо будь-які залишки кнопок під клавіатурою
-  await message.answer("Завантаження меню...", reply_markup=ReplyKeyboardRemove())
-  
-  # Відправляємо головне меню з картинкою або текстом
+  keyboard = get_admin_keyboard(message.from_user.id)
   await message.answer(
       "Вітаємо у **DripZone**! 🔥\nОбирай стильний одяг та оформлюй замовлення в кілька кліків.",
-      reply_markup=keyboard,
+      reply_markup=get_reply_keyboard(),
       parse_mode="Markdown",
   )
+  await message.answer(
+      "Головне меню:",
+      reply_markup=keyboard,
+  )
+
+
+# Обработка текстовых кнопок снизу
+@dp.message(F.text == "🛍 Каталог")
+async def text_catalog(message: types.Message):
+  keyboard = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [InlineKeyboardButton(text="Діори", callback_data="item_dior")],
+          [InlineKeyboardButton(text="Essentials", callback_data="item_essentials")],
+          [InlineKeyboardButton(text="Hellstar", callback_data="item_hellstar")],
+          [InlineKeyboardButton(text="Gallery Dept", callback_data="item_gallery")],
+      ]
+  )
+  await message.answer("Обери товар із каталогу:", reply_markup=keyboard)
+
+
+@dp.message(F.text == "🛒 Кошик")
+async def text_cart(message: types.Message):
+  await message.answer(" Ваш кошик порожній.")
+
+
+@dp.message(F.text == "📏 Розміри")
+async def text_sizes(message: types.Message):
+  await message.answer("📏 Таблиця розмірів:\n\nS, M, L, XL — уточнюйте наявність у менеджера.")
+
+
+@dp.message(F.text == "⭐ Відгуки")
+async def text_reviews(message: types.Message):
+  await message.answer("⭐ Усі відгуки про наш магазин ви можете переглянути в нашому каналі.")
+
+
+@dp.message(F.text == "📞 З'вязок з менеджером")
+async def text_manager(message: types.Message):
+  await message.answer("📩 Зв'язок з адміністратором: @admin_dripzone")
 
 
 @dp.callback_query(F.data == "catalog")
@@ -100,17 +143,9 @@ async def show_catalog(callback: types.CallbackQuery):
   keyboard = InlineKeyboardMarkup(
       inline_keyboard=[
           [InlineKeyboardButton(text="Діори", callback_data="item_dior")],
-          [
-              InlineKeyboardButton(
-                  text="Essentials", callback_data="item_essentials"
-              )
-          ],
+          [InlineKeyboardButton(text="Essentials", callback_data="item_essentials")],
           [InlineKeyboardButton(text="Hellstar", callback_data="item_hellstar")],
-          [
-              InlineKeyboardButton(
-                  text="Gallery Dept", callback_data="item_gallery"
-              )
-          ],
+          [InlineKeyboardButton(text="Gallery Dept", callback_data="item_gallery")],
           [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_home")],
       ]
   )
@@ -161,7 +196,7 @@ async def show_product(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "back_home")
 async def back_home(callback: types.CallbackQuery):
-  keyboard = get_main_keyboard(callback.from_user.id)
+  keyboard = get_admin_keyboard(callback.from_user.id)
   try:
     await callback.message.delete()
   except Exception:
