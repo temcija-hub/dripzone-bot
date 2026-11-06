@@ -60,47 +60,25 @@ PRODUCTS = {
     },
 }
 
-# --- КЛАВИАТУРА ПОД КОНТРОЛЕЙ (ВНИЗУ) ---
-def get_reply_keyboard():
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")],
-          [KeyboardButton(text="📏 Розміри"), KeyboardButton(text="⭐ Відгуки")],
-          [KeyboardButton(text="📞 З'вязок з менеджером")]
-      ],
-      resize_keyboard=True
-  )
-
-def get_admin_keyboard(user_id):
+# --- КЛАВИАТУРА ВНИЗУ ---
+def get_reply_keyboard(user_id):
   keyboard = [
-      [
-          InlineKeyboardButton(text="🛍 Каталог", callback_data="catalog"),
-          InlineKeyboardButton(text="🛒 Кошик", callback_data="cart"),
-      ],
-      [
-          InlineKeyboardButton(
-              text="ℹ️ Про нас / Доставка", callback_data="about"
-          )
-      ],
+      [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")],
+      [KeyboardButton(text="📏 Розміри"), KeyboardButton(text="⭐ Відгуки")],
+      [KeyboardButton(text="📞 З'вязок з менеджером")]
   ]
   if user_id == ADMIN_ID:
-    keyboard.append(
-        [InlineKeyboardButton(text="⚙️ Адмін-панель", callback_data="admin_panel")]
-    )
-  return InlineKeyboardMarkup(inline_keyboard=keyboard)
+    keyboard.append([KeyboardButton(text="⚙️ Адмін-панель")])
+  return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-  keyboard = get_admin_keyboard(message.from_user.id)
+  # Тільки текст привітання і нижня клавіатура (ніяких кнопок у повідомленні)
   await message.answer(
       "Вітаємо у **DripZone**! 🔥\nОбирай стильний одяг та оформлюй замовлення в кілька кліків.",
-      reply_markup=get_reply_keyboard(),
+      reply_markup=get_reply_keyboard(message.from_user.id),
       parse_mode="Markdown",
-  )
-  await message.answer(
-      "Головне меню:",
-      reply_markup=keyboard,
   )
 
 
@@ -120,7 +98,7 @@ async def text_catalog(message: types.Message):
 
 @dp.message(F.text == "🛒 Кошик")
 async def text_cart(message: types.Message):
-  await message.answer(" Ваш кошик порожній.")
+  await message.answer("🛒 Ваш кошик порожній.")
 
 
 @dp.message(F.text == "📏 Розміри")
@@ -138,6 +116,18 @@ async def text_manager(message: types.Message):
   await message.answer("📩 Зв'язок з адміністратором: @admin_dripzone")
 
 
+@dp.message(F.text == "⚙️ Адмін-панель")
+async def text_admin(message: types.Message):
+  if message.from_user.id != ADMIN_ID:
+    return
+  keyboard = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")]
+      ]
+  )
+  await message.answer("Панель адміністратора DripZone:", reply_markup=keyboard)
+
+
 @dp.callback_query(F.data == "catalog")
 async def show_catalog(callback: types.CallbackQuery):
   keyboard = InlineKeyboardMarkup(
@@ -146,7 +136,6 @@ async def show_catalog(callback: types.CallbackQuery):
           [InlineKeyboardButton(text="Essentials", callback_data="item_essentials")],
           [InlineKeyboardButton(text="Hellstar", callback_data="item_hellstar")],
           [InlineKeyboardButton(text="Gallery Dept", callback_data="item_gallery")],
-          [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_home")],
       ]
   )
   await callback.message.edit_text(
@@ -194,48 +183,13 @@ async def show_product(callback: types.CallbackQuery):
   await callback.answer()
 
 
-@dp.callback_query(F.data == "back_home")
-async def back_home(callback: types.CallbackQuery):
-  keyboard = get_admin_keyboard(callback.from_user.id)
-  try:
-    await callback.message.delete()
-  except Exception:
-    pass
-  await callback.message.answer(
-      "Головне меню DripZone:", reply_markup=keyboard
-  )
-  await callback.answer()
-
-
-@dp.callback_query(F.data == "admin_panel")
-async def admin_panel(callback: types.CallbackQuery):
-  if callback.from_user.id != ADMIN_ID:
-    await callback.answer("У вас немає доступу!", show_alert=True)
-    return
-
-  keyboard = InlineKeyboardMarkup(
-      inline_keyboard=[
-          [
-              InlineKeyboardButton(
-                  text="📊 Статистика", callback_data="admin_stats"
-              )
-          ],
-          [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_home")],
-      ]
-  )
-  await callback.message.edit_text(
-      "Панель адміністратора DripZone:", reply_markup=keyboard
-  )
-  await callback.answer()
-
-
 @dp.callback_query(F.data == "admin_stats")
 async def admin_stats(callback: types.CallbackQuery):
   if callback.from_user.id != ADMIN_ID:
     return
   keyboard = InlineKeyboardMarkup(
       inline_keyboard=[
-          [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel")]
+          [InlineKeyboardButton(text="⬅️ Назад", callback_data="catalog")]
       ]
   )
   await callback.message.edit_text(
