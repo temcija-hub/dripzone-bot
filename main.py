@@ -4,7 +4,7 @@ import os
 import sqlite3
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyParameters, ReplyKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from flask import Flask
 from threading import Thread
 
@@ -67,30 +67,65 @@ def keep_alive():
   t = Thread(target=run_flask)
   t.start()
 
-# --- КАТАЛОГ ТОВАРІВ ---
+# --- КАТАЛОГ ТОВАРОВ С ПРАВИЛЬНЫМИ ДАННЫМИ И ФОТО ---
 PRODUCTS = {
     "dior": {
-        "name": "Футболка Dior",
-        "price": "1200 грн",
-        "desc": "Стильна брендова футболка Dior. Преміум якість.",
+        "name": "Зіпка Dior",
+        "price": "1950 грн",
+        "desc": (
+            "<b>🏷 DIOR</b>\n"
+            "💵 Ціна: 1950 грн\n"
+            "📏 <b>Розміри:</b>\n"
+            "• S: Довжина виробу: 67 см | Плече + рукав: 75 см | Обхват грудей: 53 см\n"
+            "• M: Довжина виробу: 69 см | Плече + рукав: 80 см | Обхват грудей: 55 см\n\n"
+            "📝 <b>Опис:</b> Матеріал: трьох нить ✅\n"
+            "Якість 1:1 оригінал ✅\n\n"
+            "Доставка 1-2 дні 📦"
+        ),
         "file_id": "AgACAgIAAxkBAAIPLmrt4vNwRc8m2iQfw_-W3NKl0vGtAAI_HmsbmmpxSwABU2C581C6tgEAAwIAA3kAAz0E",
     },
     "essentials": {
         "name": "Худі Essentials",
-        "price": "2100 грн",
-        "desc": "Тепле оверсайз худі Fear of God Essentials.",
+        "price": "1950 грн",
+        "desc": (
+            "<b>🏷 Essentials</b>\n"
+            "💵 Ціна: 1950 грн\n"
+            "📏 <b>Розміри:</b>\n"
+            "• S: Довжина: 68.5 см | Ширина (напівобхват): 49 см | Плечі: 42 см | Рукав: 23.5 см\n\n"
+            "📝 <b>Опис:</b> Матеріал: трьох нить ✅\n"
+            "Якість 1:1 оригінал ✅\n\n"
+            "Доставка 1-2 дні 📦"
+        ),
         "file_id": "AgACAgIAAxkBAAIPEmrt4K9Wy_kOTZyJGzwXufHjDx54AAIvHmsbmmpxS9Zd79PH6rmxAQADAgADeQADPQQ",
     },
     "hellstar": {
         "name": "Худі Hellstar",
-        "price": "2300 грн",
-        "desc": "Яскравий та унікальний принт Hellstar.",
+        "price": "2000 грн",
+        "desc": (
+            "<b>🏷 Hellstar</b>\n"
+            "💵 Ціна: 2000 грн\n"
+            "📏 <b>Розміри:</b>\n"
+            "• S: Плечі: 43 см | Грудь (полуобхват): 40 см | Рукав: 59 см | Длина: 67 см\n"
+            "• M: Плечі: 45 см | Грудь (полуобхват): 42 см | Рукав: 60 см | Длина: 69 см\n\n"
+            "📝 <b>Опис:</b> Матеріал: Бавовна ✅\n"
+            "Якість 1:1 оригінал ✅\n\n"
+            "Доставка 1-2 дні 📦"
+        ),
         "file_id": "AgACAgIAAxkBAAIOz2rt3I9WAu30D6tgMDQkv35o4LQeAAIXHmsbmmpxS5SavIyPLdFbAQADAgADeQADPQQ",
     },
     "gallery": {
-        "name": "Свитшот Gallery Dept",
-        "price": "1900 грн",
-        "desc": "Фірмовий стиль та унікальний дизайн Gallery Dept.",
+        "name": "Штани Gallery Dept",
+        "price": "2000 грн",
+        "desc": (
+            "<b>🏷 GALLERY DEPT</b>\n"
+            "💵 Ціна: 2000 грн\n"
+            "📏 <b>Розміри:</b>\n"
+            "• S: Ширина (полупояс): 38 см | Длина: 98 см\n"
+            "• M: Ширина (полупояс): 41 см | Длина: 101 см\n\n"
+            "📝 <b>Опис:</b> Материал: хлопок ✅\n"
+            "Качество 1:1 оригинал ✅\n\n"
+            "Доставка 1-2 дня 📦"
+        ),
         "file_id": "AgACAgIAAxkBAAINb2rtqdbMGQ1-UvEupvHTyQboacu4AAIRHmsbtDlwS2jgzwyjxRmzAQADAgADeQADPQQ",
     },
 }
@@ -167,25 +202,25 @@ async def text_admin(message: types.Message):
   )
   await message.answer("⚙️ Панель адміністратора DripZone:", reply_markup=keyboard)
 
-# --- РОБОТА З КАТЕГОРІЯМИ ТОВАРІВ ---
+# --- РОБОТА З КАТЕГОРІЯМИ ТОВАРІВ (ПРАВИЛЬНЕ РОЗПОДІЛЕННЯ) ---
 @dp.callback_query(F.data.startswith("cat_"))
 async def show_category_items(callback: types.CallbackQuery):
   cat = callback.data.split("_")[1]
   
-  if cat == "tshirts":
+  if cat == "pants":
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Футболка Dior (1200 грн)", callback_data="item_dior")],
+            [InlineKeyboardButton(text="Штани Gallery Dept (2000 грн)", callback_data="item_gallery")],
             [InlineKeyboardButton(text="⬅️ Назад до категорій", callback_data="back_catalog")]
         ]
     )
-    text = "👕 Футболки в наявності:"
+    text = "👖 Штани в наявності:"
   elif cat == "hoodies":
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Худі Essentials (2100 грн)", callback_data="item_essentials")],
-            [InlineKeyboardButton(text="Худі Hellstar (2300 грн)", callback_data="item_hellstar")],
-            [InlineKeyboardButton(text="Свитшот Gallery Dept (1900 грн)", callback_data="item_gallery")],
+            [InlineKeyboardButton(text="Зіпка Dior (1950 грн)", callback_data="item_dior")],
+            [InlineKeyboardButton(text="Худі Essentials (1950 грн)", callback_data="item_essentials")],
+            [InlineKeyboardButton(text="Худі Hellstar (2000 грн)", callback_data="item_hellstar")],
             [InlineKeyboardButton(text="⬅️ Назад до категорій", callback_data="back_catalog")]
         ]
     )
@@ -231,8 +266,6 @@ async def show_product(callback: types.CallbackQuery):
       ]
   )
 
-  text = f"<b>{item['name']}</b>\n\nЦіна: {item['price']}\n{item['desc']}"
-
   try:
     await callback.message.delete()
   except Exception:
@@ -240,11 +273,11 @@ async def show_product(callback: types.CallbackQuery):
 
   if item["file_id"]:
     await callback.message.answer_photo(
-        photo=item["file_id"], caption=text, reply_markup=keyboard, parse_mode="HTML"
+        photo=item["file_id"], caption=item["desc"], reply_markup=keyboard, parse_mode="HTML"
     )
   else:
     await callback.message.answer(
-        text, reply_markup=keyboard, parse_mode="HTML"
+        item["desc"], reply_markup=keyboard, parse_mode="HTML"
     )
 
   await callback.answer()
@@ -265,7 +298,10 @@ async def process_buy(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "back_home")
 async def back_home(callback: types.CallbackQuery):
-  await callback.message.delete()
+  try:
+    await callback.message.delete()
+  except Exception:
+    pass
   await callback.message.answer(
       "Головне меню DripZone:",
       reply_markup=get_reply_keyboard(callback.from_user.id)
@@ -283,7 +319,7 @@ async def admin_stats(callback: types.CallbackQuery):
   catalog_items_count = len(PRODUCTS)
 
   text = (
-      "📊 **Статистика бота DripZone:**\n\n"
+      "📊 <b>Статистика бота DripZone:</b>\n\n"
       f"👥 Кількість користувачів: <b>{users_count}</b>\n"
       f"📦 Товарів у каталозі: <b>{catalog_items_count}</b>\n"
       f"🛒 Всього замовлень: <b>{orders_count}</b>"
