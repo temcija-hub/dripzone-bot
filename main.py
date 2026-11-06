@@ -37,6 +37,15 @@ def init_db():
         )
     """)
   cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cart (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            item_key TEXT,
+            item_name TEXT,
+            item_price TEXT
+        )
+    """)
+  cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             order_id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
@@ -179,7 +188,104 @@ async def text_catalog(message: types.Message):
 
 @dp.message(F.text == "🛒 Кошик")
 async def text_cart(message: types.Message):
-  await message.answer("🛒 Ваш кошик наразі порожній.")
+  user_id = message.from_user.id
+  conn = sqlite3.connect("dripzone.db")
+  cursor = conn.cursor()
+  cursor.execute("SELECT id, item_name, item_price FROM cart WHERE user_id = ?", (user_id,))
+  items = cursor.fetchall()
+  conn.close()
+
+  if not items:
+    await message.answer("🛒 Ваш кошик наразі порожній.")
+    return
+
+  cart_text = "🛒 <b>Ваш кошик:</b>\n\n"
+  total_price = 0
+  
+  for item_id, name, price in items:
+    cart_text += f"• <b>{name}</b> — {price}\n"
+    # Пробуємо витягнути цифри з ціни для підрахунку суми
+    try:
+      num = int(''.filter(str.isdigit, price) if False else ''.join(filter(str.isdigit, price)))
+      total_price += num
+    except:
+      pass
+
+  cart_text += f"\n💵 <b>Загальна сума:</b> приблизно {total_price} грн"
+
+  keyboard = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [InlineKeyboardButton(text="✅ Оформити замовлення", callback_data="checkout_cart")],
+          [InlineKeyboardButton(text="🗑 Очистити кошик", callback_data="clear_cart")]
+      ]
+  )
+  await message.answer(cart_text, reply_markup=keyboard, parse_mode="HTML")
+
+@dp.callback_query(F.data == "clear_cart")
+async def clear_cart(callback: types.CallbackQuery):
+  conn = sqlite3.connect("dripzone.db")
+  cursor = conn.cursor()
+  cursor.execute("DELETE FROM cart WHERE user_id = ?", (callback.from_user.id,))
+  conn.commit()
+  conn.close()
+  await callback.message.edit_text("🛒 Ваш кошик очищено.")
+  await callback.answer()
+
+@dp.callback_query(F.data == "checkout_cart")
+async def checkout_cart(callback: types.CallbackQuery):
+  user = callback.from_user
+  conn = sqlite3.connect("dripzone.db")
+  cursor = conn.cursor()
+  cursor.execute("SELECT item_name, item_price FROM cart WHERE user_id = ?", (user.id,))
+  items = cursor.fetchall()
+
+  if not items:
+    await callback.answer("Кошик порожній!", show_alert=True)
+    conn.close()
+    return
+
+  items_list_str = ""
+  for name, price in items:
+    items_list_str += f"• {name} ({price})\n"
+    # Записуємо кожну річ окремо в замовлення
+    cursor.execute("INSERT INTO orders (user_id, item_name) VALUES (?, ?)", (user.id, name))
+
+  # Очищуємо кошик після оформлення
+  cursor.execute("DELETE FROM cart WHERE user_id = ?", (user.id,))
+  conn.commit()
+  conn.close()
+
+  username_str = f"@{user.username}" if user.username else f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
+
+  # Сповіщення адміну
+  admin_text = (
+      "🚨 <b>НОВЕ ЗАМОВЛЕННЯ З КОШИКА!</b>\n\n"
+      f"📦 <b>Товари:</b>\n{items_list_str}\n"
+      f"👤 Покупець: {username_str}\n"
+      f"🆔 ID: <code>{user.id}</code>"
+  )
+  try:
+    await bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
+  except Exception as e:
+    print(f"Помилка відправки адміну: {e}")
+
+  buyer_text = (
+      "✅ <b>Замовлення успішно оформлено!</b>\n\n"
+      "📋 <b>Що робити далі:</b>\n"
+      "1. Наш менеджер вже отримав список товарів і скоро напише вам.\n"
+      "2. Або ви можете самі написати йому напряму для швидкого оформлення доставки:\n"
+      "👉 Посилання на менеджера: @Armenhik_gang"
+  )
+  
+  keyboard = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [InlineKeyboardButton(text="✍️ Написати менеджеру", url="https://t.me/Armenhik_gang")],
+          [InlineKeyboardButton(text="⬅️ Головне меню", callback_data="back_home")]
+      ]
+  )
+
+  await callback.message.edit_text(buyer_text, reply_markup=keyboard, parse_mode="HTML")
+  await callback.answer("Замовлення успішно відправлено!", show_alert=True)
 
 @dp.message(F.text == "📏 Розміри")
 async def text_sizes(message: types.Message):
@@ -266,7 +372,7 @@ async def show_product(callback: types.CallbackQuery):
 
   keyboard = InlineKeyboardMarkup(
       inline_keyboard=[
-          [InlineKeyboardButton(text="🛒 Купити", callback_data=f"buy_{item_key}")],
+          [InlineKeyboardButton(text="🛒 Купити (Додати в кошик)", callback_data=f"buy_{item_key}")],
           [InlineKeyboardButton(text="⬅️ До каталогу", callback_data="back_catalog")],
       ]
   )
@@ -287,49 +393,22 @@ async def show_product(callback: types.CallbackQuery):
 
   await callback.answer()
 
-# --- ОБРОБКА ПОКУПКИ ТА СПОВІЩЕННЯ АДМІНА ---
+# --- ДОДАВАННЯ В КОШИК ---
 @dp.callback_query(F.data.startswith("buy_"))
 async def process_buy(callback: types.CallbackQuery):
   item_key = callback.data.split("_")[1]
   item = PRODUCTS.get(item_key)
-  user = callback.from_user
+  user_id = callback.from_user.id
   
+  # Додаємо товар у таблицю кошика в базі даних
   conn = sqlite3.connect("dripzone.db")
   cursor = conn.cursor()
-  cursor.execute("INSERT INTO orders (user_id, item_name) VALUES (?, ?)", (user.id, item['name']))
+  cursor.execute("INSERT INTO cart (user_id, item_key, item_name, item_price) VALUES (?, ?, ?, ?)", 
+                 (user_id, item_key, item['name'], item['price']))
   conn.commit()
   conn.close()
 
-  username_str = f"@{user.username}" if user.username else f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
-
-  admin_text = (
-      "🚨 <b>НОВЕ ЗАМОВЛЕННЯ!</b>\n\n"
-      f"📦 Товар: <b>{item['name']}</b> ({item['price']})\n"
-      f"👤 Покупець: {username_str}\n"
-      f"🆔 ID: <code>{user.id}</code>"
-  )
-  try:
-    await bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
-  except Exception as e:
-    print(f"Помилка відправки адміну: {e}")
-
-  buyer_text = (
-      f"✅ <b>Замовлення на {item['name']} успішно оформлено!</b>\n\n"
-      "📋 <b>Що робити далі:</b>\n"
-      "1. Наш менеджер вже отримав сповіщення і скоро напише вам.\n"
-      "2. Або ви можете самі написати йому напряму для швидкого оформлення доставки:\n"
-      "👉 Посилання на менеджера: @Armenhik_gang"
-  )
-  
-  keyboard = InlineKeyboardMarkup(
-      inline_keyboard=[
-          [InlineKeyboardButton(text="✍️ Написати менеджеру", url="https://t.me/Armenhik_gang")],
-          [InlineKeyboardButton(text="⬅️ Головне меню", callback_data="back_home")]
-      ]
-  )
-
-  await callback.message.edit_caption(caption=buyer_text, reply_markup=keyboard, parse_mode="HTML")
-  await callback.answer("Замовлення прийнято!", show_alert=True)
+  await callback.answer(f"✅ Товар «{item['name']}» додано до кошика!", show_alert=True)
 
 @dp.callback_query(F.data == "back_home")
 async def back_home(callback: types.CallbackQuery):
@@ -530,7 +609,6 @@ async def admin_back(callback: types.CallbackQuery):
 
 
 async def main():
-  # Запускаємо Flask у фоновому потоці
   flask_thread = Thread(target=run_flask)
   flask_thread.daemon = True
   flask_thread.start()
