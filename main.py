@@ -93,7 +93,6 @@ def init_db():
         "INSERT INTO categories (name) VALUES (?)", categories_list
     )
 
-    # Сюда (в последнюю кавычку) потом можно вставить полученный file_id для каждого товара
     default_products = [
         (
             1,
@@ -105,7 +104,7 @@ def init_db():
                 " рукав: 80 см\n Обхват грудей: 55 см"
             ),
             "Матеріал: трьох нить ✅\nЯкість 1:1 оригінал ✅\nДоставка 1-2 дні 📦",
-            "",
+            "AgACAgIAAxkBAAINb2rtqdbMGQ1-UvEupvHTyQboacu4AAIRHmsbtDlwS2jgzwyjxRmzAQADAgADeQADPQQ",
         ),
         (
             1,
@@ -119,7 +118,7 @@ def init_db():
                 "Матеріал: трьох нить ✅\nЯкість 1:1 оригінал"
                 " ✅\n\nДоставка 1-2 дні 📦"
             ),
-            "",
+            "AgACAgIAAxkBAAIOz2rt3I9WAu30D6tgMDQkv35o4LQeAAIXHmsbmmpxS5SavIyPLdFbAQADAgADeQADPQQ",
         ),
         (
             1,
@@ -131,7 +130,7 @@ def init_db():
                 " (напівобхват): 42 см\n Рукав: 60 см\n Довжина: 69 см"
             ),
             "Матеріал: Бавовна ✅\nЯкість 1:1 оригінал ✅\n\nДоставка 1-2 дні 📦",
-            "",
+            "AgACAgIAAxkBAAIPEmrt4K9Wy_kOTZyJGzwXufHjDx54AAIvHmsbmmpxS9Zd79PH6rmxAQADAgADeQADPQQ",
         ),
         (
             2,
@@ -142,7 +141,7 @@ def init_db():
                 " M:\n Ширина (полупояс): 41 см\n Довжина: 101 см"
             ),
             "Материал: хлопок ✅\nКачество 1:1 оригинал ✅\nДоставка 1-2 дня 📦",
-            "",
+            "AgACAgIAAxkBAAIPLmrt4vNwRc8m2iQfw_-W3NKl0vGtAAI_HmsbmmpxSwABU2C581C6tgEAAwIAA3kAAz0E",
         ),
     ]
 
@@ -190,15 +189,6 @@ async def cmd_start(message: types.Message):
       "Вітаємо у **DripZone**! 🔥\nОбирайте стиль за допомогою кнопок нижче.",
       reply_markup=get_reply_keyboard(user_id),
       parse_mode="Markdown",
-  )
-
-
-# АВТОМАТИЧЕСКИЙ ПЕРЕХВАТЧИК ФОТО: просто отправь фото боту в чат, и он напишет его file_id
-@dp.message(F.photo)
-async def get_photo_id(message: types.Message):
-  photo_id = message.photo[-1].file_id
-  await message.answer(
-      f"Ось `file_id` цієї фотографії:\n`{photo_id}`", parse_mode="Markdown"
   )
 
 
