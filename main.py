@@ -7,7 +7,7 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from flask import Flask
 
-# 1. Настройка Flask (Gunicorn будет обращаться к переменной 'app')
+# 1. Настройка Flask-сервера для удержания порта
 app = Flask('')
 
 
@@ -15,6 +15,16 @@ app = Flask('')
 def home():
   return 'Bot is running!'
 
+
+def run_web():
+  port = int(os.environ.get('PORT', 10000))
+  app.run(host='0.0.0.0', port=port)
+
+
+# Запускаем Flask в фоновом потоке
+t = threading.Thread(target=run_web)
+t.daemon = True
+t.start()
 
 # 2. Инициализация бота aiogram v3
 TOKEN = '8889115088:AAGJ_IO4jvhmXm8g8c2osXmk29iCbW_ACVo'
@@ -46,20 +56,10 @@ async def send_welcome(message: types.Message):
   )
 
 
-# Функция запуска поллинга бота в фоне
-async def run_bot():
+async def main():
   logging.basicConfig(level=logging.INFO)
   await dp.start_polling(bot)
 
 
-def start_background_loop():
-  loop = asyncio.new_event_loop()
-  asyncio.set_event_loop(loop)
-  loop.run_until_complete(run_bot())
-
-
-# Запускаем бота в отдельном потоке, пока Gunicorn держит веб-сервер Flask
-threading.Thread(target=start_background_loop, daemon=True).start()
-
 if __name__ == '__main__':
-  app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+  asyncio.run(main())
