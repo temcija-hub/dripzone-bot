@@ -3,20 +3,17 @@ import logging
 import os
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from flask import Flask
 from threading import Thread
 
-# Налаштування токена та адміна
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8889115088:AAE9c82-FDe1DoSczwUboBwn5-EtajpfKwY")
 ADMIN_ID = 2125409043
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- ФЛАСК ДЛЯ UPTIME (щоб Render не засинав) ---
+# --- ФЛАСК ДЛЯ UPTIME ---
 app = Flask("")
 
 
@@ -35,38 +32,33 @@ def keep_alive():
   t.start()
 
 
-# --- БАЗА ДАНИХ ТОВАРІВ ---
-# Статичні товари з твоїми file_id для гарантованого відображення картинок
+# --- ТОВАРЫ С ТВОИМИ FILE_ID ---
 PRODUCTS = {
     "dior": {
         "name": "Футболка Dior",
         "price": "1200 грн",
         "desc": "Стильна брендова футболка Dior. Преміум якість.",
-        "file_id": (  # Заміни на свій реальний file_id, якщо потрібно
-            "AgACAgIAAxkBAAI..."
-        ),
+        "file_id": "AgACAgIAAxkBAAIPLmrt4vNwRc8m2iQfw_-W3NKl0vGtAAI_HmsbmmpxSwABU2C581C6tgEAAwIAA3kAAz0E",
     },
     "essentials": {
         "name": "Худі Essentials",
         "price": "2100 грн",
         "desc": "Тепле оверсайз худі Fear of God Essentials.",
-        "file_id": "AgACAgIAAxkBAAI...",
+        "file_id": "AgACAgIAAxkBAAIPEmrt4K9Wy_kOTZyJGzwXufHjDx54AAIvHmsbmmpxS9Zd79PH6rmxAQADAgADeQADPQQ",
     },
     "hellstar": {
         "name": "Худі Hellstar",
         "price": "2300 грн",
         "desc": "Яскравий та унікальний принт Hellstar.",
-        "file_id": "AgACAgIAAxkBAAI...",
+        "file_id": "AgACAgIAAxkBAAIOz2rt3I9WAu30D6tgMDQkv35o4LQeAAIXHmsbmmpxS5SavIyPLdFbAQADAgADeQADPQQ",
     },
     "gallery": {
         "name": "Свитшот Gallery Dept",
         "price": "1900 грн",
         "desc": "Фірмовий стиль та унікальний дизайн Gallery Dept.",
-        "file_id": "AgACAgIAAxkBAAI...",
+        "file_id": "AgACAgIAAxkBAAINb2rtqdbMGQ1-UvEupvHTyQboacu4AAIRHmsbtDlwS2jgzwyjxRmzAQADAgADeQADPQQ",
     },
 }
-
-# --- КЛАВІАТУРИ ---
 
 
 def get_main_keyboard(user_id):
@@ -86,9 +78,6 @@ def get_main_keyboard(user_id):
         [InlineKeyboardButton(text="⚙️ Адмін-панель", callback_data="admin_panel")]
     )
   return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-
-# --- ХЕНДЛЕРИ ---
 
 
 @dp.message(Command("start"))
@@ -148,23 +137,31 @@ async def show_product(callback: types.CallbackQuery):
 
   text = f"<b>{item['name']}</b>\n\nЦіна: {item['price']}\n{item['desc']}"
 
-  # Надсилаємо фотографію за file_id, якщо вона є
   try:
+    await callback.message.delete()
+  except Exception:
+    pass
+
+  if item["file_id"]:
     await callback.message.answer_photo(
         photo=item["file_id"], caption=text, reply_markup=keyboard, parse_mode="HTML"
     )
-    await callback.message.delete()
-  except Exception:
-    await callback.message.edit_text(
+  else:
+    await callback.message.answer(
         text, reply_markup=keyboard, parse_mode="HTML"
     )
+
   await callback.answer()
 
 
 @dp.callback_query(F.data == "back_home")
 async def back_home(callback: types.CallbackQuery):
   keyboard = get_main_keyboard(callback.from_user.id)
-  await callback.message.edit_text(
+  try:
+    await callback.message.delete()
+  except Exception:
+    pass
+  await callback.message.answer(
       "Головне меню DripZone:", reply_markup=keyboard
   )
   await callback.answer()
@@ -208,9 +205,8 @@ async def admin_stats(callback: types.CallbackQuery):
   await callback.answer()
 
 
-# --- ЗАПУСК БОТА ТА FLASK ---
 async def main():
-  keep_alive()  # Запускаємо Flask у фоновому потоці для пінгації
+  keep_alive()
   print("Бот та Flask-сервер успішно запущено!")
   await dp.start_polling(bot)
 
