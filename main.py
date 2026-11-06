@@ -81,7 +81,10 @@ def get_main_keyboard():
   return ReplyKeyboardMarkup(
       keyboard=[
           [KeyboardButton(text='🔥 Каталог брендів'), KeyboardButton(text='🛒 Кошик')],
-          [KeyboardButton(text='💬 Зв\'язок з менеджером')],
+          [
+              KeyboardButton(text='💬 Відгуки'),
+              KeyboardButton(text='💬 Зв\'язок з менеджером'),
+          ],
           [
               KeyboardButton(text='📊 Статистика'),
               KeyboardButton(text='⚙️ Адмін панель'),
@@ -93,28 +96,15 @@ def get_main_keyboard():
 
 @dp.message(Command('start'))
 async def send_welcome(message: types.Message):
-  # Сохраняем пользователя в базу при старте
   cursor.execute(
       'INSERT OR IGNORE INTO users (user_id) VALUES (?)',
       (message.from_user.id,),
   )
   conn.commit()
 
-  reviews_kb = InlineKeyboardMarkup(
-      inline_keyboard=[
-          [
-              InlineKeyboardButton(
-                  text='💬 Перейти до відгуків', url='https://t.me/dripproe'
-              )
-          ]
-      ]
-  )
   await message.answer(
       'Вітаю у DRIPZONE Shop! Вибери потрібний розділ нижче:',
       reply_markup=get_main_keyboard(),
-  )
-  await message.answer(
-      'Також запрошуємо переглянути відгуки покупців:', reply_markup=reviews_kb
   )
 
 
@@ -125,6 +115,7 @@ async def show_categories(message: types.Message):
           [InlineKeyboardButton(text='👕 Футболки', callback_data='cat_Футболки')],
           [InlineKeyboardButton(text='🧥 Худі', callback_data='cat_Худі')],
           [InlineKeyboardButton(text='🧶 Кофти', callback_data='cat_Кофти')],
+          [InlineKeyboardButton(text='👖 Штани', callback_data='cat_Штани')],
           [InlineKeyboardButton(text='👟 Кросівки', callback_data='cat_Кросівки')],
           [
               InlineKeyboardButton(
@@ -141,7 +132,7 @@ async def show_categories(message: types.Message):
 @dp.callback_query(F.data.startswith('cat_'))
 async def show_products_by_category(callback: types.CallbackQuery):
   await callback.answer()
-  category = callback.data.split('_')[1]
+  category = callback.data.split('_', 1)[1]
   cursor.execute(
       'SELECT id, name, price FROM products WHERE category = ?', (category,)
   )
@@ -235,7 +226,6 @@ async def cb_clear_cart(callback: types.CallbackQuery):
 @dp.callback_query(F.data == 'checkout')
 async def cb_checkout(callback: types.CallbackQuery):
   await callback.answer('Замовлення оформлено')
-  # Сохраняем заказ в базу данных
   cursor.execute(
       'INSERT INTO orders (user_id) VALUES (?)', (callback.from_user.id,)
   )
@@ -243,6 +233,23 @@ async def cb_checkout(callback: types.CallbackQuery):
   conn.commit()
   await callback.message.answer(
       '✅ Дякуємо за замовлення! Менеджер скоро зв\'яжеться з вами.'
+  )
+
+
+@dp.message(F.text == '💬 Відгуки')
+async def show_reviews(message: types.Message):
+  reviews_kb = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [
+              InlineKeyboardButton(
+                  text='💬 Перейти до відгуків', url='https://t.me/dripproe'
+              )
+          ]
+      ]
+  )
+  await message.answer(
+      '💬 Натисни кнопку нижче, щоб переглянути відгуки наших покупців:',
+      reply_markup=reviews_kb,
   )
 
 
@@ -295,6 +302,7 @@ async def cb_add_product(callback: types.CallbackQuery, state: FSMContext):
           [InlineKeyboardButton(text='👕 Футболки', callback_data='setcat_Футболки')],
           [InlineKeyboardButton(text='🧥 Худі', callback_data='setcat_Худі')],
           [InlineKeyboardButton(text='🧶 Кофти', callback_data='setcat_Кофти')],
+          [InlineKeyboardButton(text='👖 Штани', callback_data='setcat_Штани')],
           [InlineKeyboardButton(text='👟 Кросівки', callback_data='setcat_Кросівки')],
           [
               InlineKeyboardButton(
@@ -311,7 +319,7 @@ async def cb_add_product(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data.startswith('setcat_'))
 async def process_category(callback: types.CallbackQuery, state: FSMContext):
   await callback.answer()
-  category = callback.data.split('_')[1]
+  category = callback.data.split('_', 1)[1]
   await state.update_data(category=category)
   await callback.message.answer(
       f'Вибрано категорію: **{category}**\nВведи назву товару:',
