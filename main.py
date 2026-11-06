@@ -4,6 +4,9 @@ import os
 import sqlite3
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from flask import Flask
 from threading import Thread
@@ -12,9 +15,21 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "8889115088:AAE9c82-FDe1DoSczwUboBwn5-EtajpfK
 ADMIN_ID = 2125409043
 
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=MemoryStorage())
 
-# --- БАЗА ДАНИХ SQLite (для статистики) ---
+# --- СТАНИ ДЛЯ FSM (РЕДАГУВАННЯ ТА ДОДАВАННЯ) ---
+class AdminStates(StatesGroup):
+  waiting_for_item_key = State()
+  waiting_for_new_price = State()
+  waiting_for_new_desc = State()
+  waiting_for_add_key = State()
+  waiting_for_add_name = State()
+  waiting_for_add_price = State()
+  waiting_for_add_desc = State()
+  waiting_for_add_photo = State()
+  waiting_for_add_category = State()
+
+# --- БАЗА ДАНИХ SQLite ---
 def init_db():
   conn = sqlite3.connect("dripzone.db")
   cursor = conn.cursor()
@@ -52,7 +67,7 @@ def get_stats():
   conn.close()
   return users_count, orders_count
 
-# --- ФЛАСК ДЛЯ UPTIME ---
+# --- ФЛАСК ДЛЯ UPTIME (24/7) ---
 app = Flask("")
 
 @app.route("/")
@@ -67,11 +82,12 @@ def keep_alive():
   t = Thread(target=run_flask)
   t.start()
 
-# --- КАТАЛОГ ТОВАРОВ С ПРАВИЛЬНЫМИ ДАННЫМИ И ФОТО ---
+# --- КАТАЛОГ ТОВАРІВ (ЗБЕРІГАЄМО КАТЕГОРІЇ ТАКОЖ) ---
 PRODUCTS = {
     "dior": {
         "name": "Зіпка Dior",
         "price": "1950 грн",
+        "category": "hoodies",
         "desc": (
             "<b>🏷 DIOR</b>\n"
             "💵 Ціна: 1950 грн\n"
@@ -87,6 +103,7 @@ PRODUCTS = {
     "essentials": {
         "name": "Худі Essentials",
         "price": "1950 грн",
+        "category": "hoodies",
         "desc": (
             "<b>🏷 Essentials</b>\n"
             "💵 Ціна: 1950 грн\n"
@@ -101,6 +118,7 @@ PRODUCTS = {
     "hellstar": {
         "name": "Худі Hellstar",
         "price": "2000 грн",
+        "category": "hoodies",
         "desc": (
             "<b>🏷 Hellstar</b>\n"
             "💵 Ціна: 2000 грн\n"
@@ -116,6 +134,7 @@ PRODUCTS = {
     "gallery": {
         "name": "Штани Gallery Dept",
         "price": "2000 грн",
+        "category": "pants",
         "desc": (
             "<b>🏷 GALLERY DEPT</b>\n"
             "💵 Ціна: 2000 грн\n"
@@ -197,43 +216,36 @@ async def text_admin(message: types.Message):
   keyboard = InlineKeyboardMarkup(
       inline_keyboard=[
           [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+          [InlineKeyboardButton(text="📝 Редагувати / Додати товари", callback_data="admin_edit_menu")],
           [InlineKeyboardButton(text="⬅️ Головне меню", callback_data="back_home")]
       ]
   )
   await message.answer("⚙️ Панель адміністратора DripZone:", reply_markup=keyboard)
 
-# --- РОБОТА З КАТЕГОРІЯМИ ТОВАРІВ (ПРАВИЛЬНЕ РОЗПОДІЛЕННЯ) ---
+# --- КАТЕГОРІЇ КАТАЛОГУ ---
 @dp.callback_query(F.data.startswith("cat_"))
 async def show_category_items(callback: types.CallbackQuery):
   cat = callback.data.split("_")[1]
   
-  if cat == "pants":
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Штани Gallery Dept (2000 грн)", callback_data="item_gallery")],
-            [InlineKeyboardButton(text="⬅️ Назад до категорій", callback_data="back_catalog")]
-        ]
-    )
-    text = "👖 Штани в наявності:"
-  elif cat == "hoodies":
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Зіпка Dior (1950 грн)", callback_data="item_dior")],
-            [InlineKeyboardButton(text="Худі Essentials (1950 грн)", callback_data="item_essentials")],
-            [InlineKeyboardButton(text="Худі Hellstar (2000 грн)", callback_data="item_hellstar")],
-            [InlineKeyboardButton(text="⬅️ Назад до категорій", callback_data="back_catalog")]
-        ]
-    )
-    text = "🧥 Кофти та худі в наявності:"
-  else:
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Назад до категорій", callback_data="back_catalog")]
-        ]
-    )
-    text = "📦 У цій категорії товари скоро з'являться!"
-
-  await callback.message.edit_text(text, reply_markup=keyboard)
+  # Динамічно збираємо товари з категорії
+  items_buttons = []
+  for key, item in PRODUCTS.items():
+    if item.get("category") == cat:
+      items_buttons.append([InlineKeyboardButton(text=f"{item['name']} ({item['price']})", callback_data=f"item_{key}")])
+  
+  items_buttons.append([InlineKeyboardButton(text="⬅️ Назад до категорій", callback_data="back_catalog")])
+  
+  keyboard = InlineKeyboardMarkup(inline_keyboard=items_buttons)
+  
+  category_names = {
+      "pants": "👖 Штани в наявності:",
+      "hoodies": "🧥 Кофти та худі в наявності:",
+      "sneakers": "👟 Кросівки в наявності:",
+      "tshirts": "👕 Футболки в наявності:",
+      "accessories": "🕶 Аксесуари в наявності:"
+  }
+  
+  await callback.message.edit_text(category_names.get(cat, "📦 Товари:"), reply_markup=keyboard)
   await callback.answer()
 
 @dp.callback_query(F.data == "back_catalog")
@@ -287,7 +299,6 @@ async def process_buy(callback: types.CallbackQuery):
   item_key = callback.data.split("_")[1]
   item = PRODUCTS.get(item_key)
   
-  # Записуємо замовлення в БД
   conn = sqlite3.connect("dripzone.db")
   cursor = conn.cursor()
   cursor.execute("INSERT INTO orders (user_id, item_name) VALUES (?, ?)", (callback.from_user.id, item['name']))
@@ -308,7 +319,7 @@ async def back_home(callback: types.CallbackQuery):
   )
   await callback.answer()
 
-# --- АДМІН-ПАНЕЛЬ (СТАТИСТИКА) ---
+# --- АДМІН-ПАНЕЛЬ: СТАТИСТИКА ТА УПРАВЛІННЯ ТОВАРАМИ ---
 @dp.callback_query(F.data == "admin_stats")
 async def admin_stats(callback: types.CallbackQuery):
   if callback.from_user.id != ADMIN_ID:
@@ -333,6 +344,173 @@ async def admin_stats(callback: types.CallbackQuery):
   await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
   await callback.answer()
 
+@dp.callback_query(F.data == "admin_edit_menu")
+async def admin_edit_menu(callback: types.CallbackQuery):
+  if callback.from_user.id != ADMIN_ID:
+    return
+  
+  # Виводимо список товарів з кнопками редагування/видалення
+  buttons = []
+  for key, item in PRODUCTS.items():
+    buttons.append([
+        InlineKeyboardButton(text=f"✏️ {item['name']}", callback_data=f"adm_edit_{key}"),
+        InlineKeyboardButton(text=f"❌ Видалити", callback_data=f"adm_del_{key}")
+    ])
+  
+  buttons.append([InlineKeyboardButton(text="➕ Додати новий товар", callback_data="adm_add_item")])
+  buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")])
+  
+  keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+  await callback.message.edit_text("⚙️ <b>Керування товарами:</b>\nОбери товар для редагування або додай новий:", reply_markup=keyboard, parse_mode="HTML")
+  await callback.answer()
+
+@dp.callback_query(F.data.startswith("adm_del_"))
+async def admin_delete_item(callback: types.CallbackQuery):
+  if callback.from_user.id != ADMIN_ID:
+    return
+  item_key = callback.data.split("_")[2]
+  if item_key in PRODUCTS:
+    del PRODUCTS[item_key]
+    await callback.answer("✅ Товар успішно видалено!", show_alert=True)
+  else:
+    await callback.answer("Товар не знайдено.", show_alert=True)
+  
+  # Повертаємось в меню управління
+  await admin_edit_menu(callback)
+
+@dp.callback_query(F.data.startswith("adm_edit_"))
+async def admin_edit_item_menu(callback: types.CallbackQuery):
+  if callback.from_user.id != ADMIN_ID:
+    return
+  item_key = callback.data.split("_")[2]
+  item = PRODUCTS.get(item_key)
+  
+  keyboard = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [InlineKeyboardButton(text="💵 Змінити ціну", callback_data=f"set_price_{item_key}")],
+          [InlineKeyboardButton(text="📝 Змінити опис / розміри", callback_data=f"set_desc_{item_key}")],
+          [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_edit_menu")]
+      ]
+  )
+  await callback.message.edit_text(f"Редагування товару: <b>{item['name']}</b>", reply_markup=keyboard, parse_mode="HTML")
+  await callback.answer()
+
+# --- ЗМІНА ЦІНИ ЧЕРЕЗ FSM ---
+@dp.callback_query(F.data.startswith("set_price_"))
+async def start_change_price(callback: types.CallbackQuery, state: FSMContext):
+  if callback.from_user.id != ADMIN_ID:
+    return
+  item_key = callback.data.split("_")[2]
+  await state.update_data(editing_key=item_key)
+  await callback.message.answer("Введи нову ціну (наприклад: <code>2100 грн</code>):", parse_mode="HTML")
+  await state.set_state(AdminStates.waiting_for_new_price)
+  await callback.answer()
+
+@dp.message(AdminStates.waiting_for_new_price)
+async def save_new_price(message: types.Message, state: FSMContext):
+  if message.from_user.id != ADMIN_ID:
+    return
+  data = await state.get_data()
+  key = data.get("editing_key")
+  new_price = message.text
+  
+  if key in PRODUCTS:
+    PRODUCTS[key]["price"] = new_price
+    await message.answer(f"✅ Ціну успішно змінено на <b>{new_price}</b>!", parse_mode="HTML")
+  
+  await state.clear()
+
+# --- ЗМІНА ОПИСУ ЧЕРЕЗ FSM ---
+@dp.callback_query(F.data.startswith("set_desc_"))
+async def start_change_desc(callback: types.CallbackQuery, state: FSMContext):
+  if callback.from_user.id != ADMIN_ID:
+    return
+  item_key = callback.data.split("_")[2]
+  await state.update_data(editing_key=item_key)
+  await callback.message.answer("Введи новий повний опис та розміри для товару (можна використовувати HTML-теги):", parse_mode="HTML")
+  await state.set_state(AdminStates.waiting_for_new_desc)
+  await callback.answer()
+
+@dp.message(AdminStates.waiting_for_new_desc)
+async def save_new_desc(message: types.Message, state: FSMContext):
+  if message.from_user.id != ADMIN_ID:
+    return
+  data = await state.get_data()
+  key = data.get("editing_key")
+  new_desc = message.text
+  
+  if key in PRODUCTS:
+    PRODUCTS[key]["desc"] = new_desc
+    await message.answer("✅ Опис та розміри успішно оновлено!", parse_mode="HTML")
+  
+  await state.clear()
+
+# --- ДОДАВАННЯ НОВОГО ТОВАРУ ЧЕРЕЗ FSM ---
+@dp.callback_query(F.data == "adm_add_item")
+async def start_add_item(callback: types.CallbackQuery, state: FSMContext):
+  if callback.from_user.id != ADMIN_ID:
+    return
+  await callback.message.answer("Введи унікальний системний ключ для товару англійською (наприклад: <code>nike_shoes</code>):", parse_mode="HTML")
+  await state.set_state(AdminStates.waiting_for_add_key)
+  await callback.answer()
+
+@dp.message(AdminStates.waiting_for_add_key)
+async def add_item_key(message: types.Message, state: FSMContext):
+  await state.update_data(new_key=message.text.strip())
+  await message.answer("Введи назву товару (наприклад: <i>Кросівки Nike</i>):", parse_mode="HTML")
+  await state.set_state(AdminStates.waiting_for_add_name)
+
+@dp.message(AdminStates.waiting_for_add_name)
+async def add_item_name(message: types.Message, state: FSMContext):
+  await state.update_data(new_name=message.text)
+  keyboard = InlineKeyboardMarkup(
+      inline_keyboard=[
+          [InlineKeyboardButton(text="👖 Штани", callback_data="addcat_pants")],
+          [InlineKeyboardButton(text="🧥 Кофти / Худі", callback_data="addcat_hoodies")],
+          [InlineKeyboardButton(text="👟 Кросівки", callback_data="addcat_sneakers")],
+          [InlineKeyboardButton(text="👕 Футболки", callback_data="addcat_tshirts")],
+          [InlineKeyboardButton(text="🕶 Аксесуари", callback_data="addcat_accessories")],
+      ]
+  )
+  await message.answer("Обери категорію для цього товару:", reply_markup=keyboard)
+
+@dp.callback_query(F.data.startswith("addcat_"))
+async def add_item_category(callback: types.CallbackQuery, state: FSMContext):
+  cat = callback.data.split("_")[1]
+  await state.update_data(new_category=cat)
+  await callback.message.edit_text("Введи ціну товару (наприклад: <code>2500 грн</code>):", parse_mode="HTML")
+  await state.set_state(AdminStates.waiting_for_add_price)
+  await callback.answer()
+
+@dp.message(AdminStates.waiting_for_add_price)
+async def add_item_price(message: types.Message, state: FSMContext):
+  await state.update_data(new_price=message.text)
+  await message.answer("Введи повний опис та розміри товару:")
+  await state.set_state(AdminStates.waiting_for_add_desc)
+
+@dp.message(AdminStates.waiting_for_add_desc)
+async def add_item_desc(message: types.Message, state: FSMContext):
+  await state.update_data(new_desc=message.text)
+  await message.answer("Надішли фотографію для цього товару (картинкою):")
+  await state.set_state(AdminStates.waiting_for_add_photo)
+
+@dp.message(AdminStates.waiting_for_add_photo, F.photo)
+async def add_item_photo(message: types.Message, state: FSMContext):
+  photo_file_id = message.photo[-1].file_id
+  data = await state.get_data()
+  
+  key = data.get("new_key")
+  PRODUCTS[key] = {
+      "name": data.get("new_name"),
+      "price": data.get("new_price"),
+      "category": data.get("new_category"),
+      "desc": data.get("new_desc"),
+      "file_id": photo_file_id
+  }
+  
+  await message.answer("✅ Новий товар успішно додано до каталогу!", reply_markup=get_reply_keyboard(message.from_user.id))
+  await state.clear()
+
 @dp.callback_query(F.data == "admin_back")
 async def admin_back(callback: types.CallbackQuery):
   if callback.from_user.id != ADMIN_ID:
@@ -340,6 +518,7 @@ async def admin_back(callback: types.CallbackQuery):
   keyboard = InlineKeyboardMarkup(
       inline_keyboard=[
           [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+          [InlineKeyboardButton(text="📝 Редагувати / Додати товари", callback_data="admin_edit_menu")],
           [InlineKeyboardButton(text="⬅️ Головне меню", callback_data="back_home")]
       ]
   )
