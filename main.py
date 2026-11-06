@@ -15,7 +15,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-# Твой Telegram ID (админ)
+# Твій Telegram ID (адмін)
 ADMIN_ID = 2125409043
 
 router = Router()
