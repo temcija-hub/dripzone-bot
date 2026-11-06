@@ -13,13 +13,11 @@ from aiogram.types import (
 )
 from flask import Flask
 
-# Токен берется из защищенных переменных окружения Render
 TOKEN = os.getenv("BOT_TOKEN")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Flask для работы на Render
 app = Flask("")
 
 
@@ -32,7 +30,6 @@ def run_flask():
   app.run(host="0.0.0.0", port=10000)
 
 
-# --- СОСТОЯНИЯ ДЛЯ FSM (УПРАВЛЕНИЕ ТОВАРАМИ) ---
 class AdminStates(StatesGroup):
   waiting_for_product_name = State()
   waiting_for_category = State()
@@ -40,11 +37,9 @@ class AdminStates(StatesGroup):
   waiting_for_sizes = State()
   waiting_for_description = State()
   waiting_for_photo = State()
-
   edit_new_value = State()
 
 
-# --- БАЗА ДАННЫХ И ТОВАРЫ ---
 def init_db():
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
@@ -69,14 +64,12 @@ def init_db():
         )
     """)
 
-  # Таблица пользователей для статистики
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY
         )
     """)
 
-  # Таблица заказов для статистики
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,7 +81,6 @@ def init_db():
 
   cursor.execute("SELECT COUNT(*) FROM categories")
   if cursor.fetchone()[0] == 0:
-    # Добавляем все нужные категории
     categories_list = [
         ("Худі",),
         ("Штани",),
@@ -101,6 +93,7 @@ def init_db():
         "INSERT INTO categories (name) VALUES (?)", categories_list
     )
 
+    # Сюда (в последнюю кавычку) потом можно вставить полученный file_id для каждого товара
     default_products = [
         (
             1,
@@ -165,7 +158,6 @@ def init_db():
   conn.close()
 
 
-# --- КНОПКИ ПОД КЛАВИАТУРОЙ (REPLY) ---
 def get_reply_keyboard(user_id):
   kb = [
       [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")],
@@ -181,7 +173,6 @@ def get_reply_keyboard(user_id):
   )
 
 
-# --- ОБРАБОТЧИКИ КОМАНД И КЛИЕНТСКОЙ ЧАСТИ ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
   init_db()
@@ -199,6 +190,15 @@ async def cmd_start(message: types.Message):
       "Вітаємо у **DripZone**! 🔥\nОбирайте стиль за допомогою кнопок нижче.",
       reply_markup=get_reply_keyboard(user_id),
       parse_mode="Markdown",
+  )
+
+
+# АВТОМАТИЧЕСКИЙ ПЕРЕХВАТЧИК ФОТО: просто отправь фото боту в чат, и он напишет его file_id
+@dp.message(F.photo)
+async def get_photo_id(message: types.Message):
+  photo_id = message.photo[-1].file_id
+  await message.answer(
+      f"Ось `file_id` цієї фотографії:\n`{photo_id}`", parse_mode="Markdown"
   )
 
 
@@ -240,9 +240,7 @@ async def btn_sizes(message: types.Message):
 
 @dp.message(F.text == "⭐ Відгуки")
 async def btn_reviews(message: types.Message):
-  await message.answer(
-      "⭐ Наші відгуки та репутація: https://t.me/Armenhik_gang"
-  )
+  await message.answer("⭐ Наші відгуки: https://t.me/dripproe")
 
 
 @dp.message(F.text == "📞 Зв'язок з менеджером")
@@ -252,7 +250,6 @@ async def btn_manager(message: types.Message):
   )
 
 
-# --- АДМИН-ПАНЕЛЬ ---
 @dp.message(F.text == "⚙️ Адмін-панель")
 async def admin_panel(message: types.Message):
   ADMIN_ID = 2125409043
@@ -439,7 +436,7 @@ async def admin_start_edit(callback: types.CallbackQuery, state: FSMContext):
   await state.update_data(edit_prod_id=prod_id, edit_action=action)
   await state.set_state(AdminStates.edit_new_value)
 
-  names = {"p": "нову ціну (наприклад: 2100 грн)", "s": "нові розміри", "d": "новий опис"}
+  names = {"p": "нову ціну", "s": "нові розміри", "d": "новий опис"}
   await callback.message.answer(f"Введіть {names[action]}:")
   await callback.answer()
 
@@ -468,7 +465,6 @@ async def admin_save_new_value(message: types.Message, state: FSMContext):
   await message.answer("Дані товару успішно оновлено! ✅")
 
 
-# --- ДОБАВЛЕНИЕ ТОВАРА (ПОШАГОВО) ---
 @dp.callback_query(F.data == "admin_add")
 async def admin_add_start(callback: types.CallbackQuery, state: FSMContext):
   await state.set_state(AdminStates.waiting_for_product_name)
@@ -507,7 +503,7 @@ async def admin_add_category(callback: types.CallbackQuery, state: FSMContext):
   cat_id = int(callback.data.split("_")[1])
   await state.update_data(category_id=cat_id)
   await state.set_state(AdminStates.waiting_for_price)
-  await callback.message.answer("Введіть ціну товару (наприклад: 2000 грн):")
+  await callback.message.answer("Введіть ціну товару:")
   await callback.answer()
 
 
@@ -522,7 +518,7 @@ async def admin_add_price(message: types.Message, state: FSMContext):
 async def admin_add_sizes(message: types.Message, state: FSMContext):
   await state.update_data(sizes=message.text)
   await state.set_state(AdminStates.waiting_for_description)
-  await message.answer("Введіть опис товару (матеріал, якість тощо):")
+  await message.answer("Введіть опис товару:")
 
 
 @dp.message(AdminStates.waiting_for_description)
@@ -560,7 +556,6 @@ async def admin_add_photo(message: types.Message, state: FSMContext):
   await message.answer("Товар успішно додано до каталогу! 🎉")
 
 
-# --- КЛИЕНТСКАЯ ЧАСТЬ КАТАЛОГА ---
 @dp.callback_query(F.data.startswith("cat_"))
 async def show_products(callback: types.CallbackQuery):
   cat_id = int(callback.data.split("_")[1])
@@ -705,7 +700,6 @@ async def make_order(callback: types.CallbackQuery):
   )
 
 
-# --- ЗАПУСК ---
 async def main():
   init_db()
 
