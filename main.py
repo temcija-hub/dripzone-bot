@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sqlite3
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.fsm.context import FSMContext
@@ -42,7 +43,6 @@ class EditProduct(StatesGroup):
 def init_db():
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
-  # Название одно (английское), а описания два (desc_ua, desc_ru)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,6 +59,12 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             lang TEXT DEFAULT 'uk'
+        )
+    """)
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cart (
+            user_id INTEGER,
+            product_id INTEGER
         )
     """)
   cursor.execute("""
@@ -256,6 +262,7 @@ async def show_products_by_category(callback: CallbackQuery):
           f"📏 Размеры: {sizes}\n"
           f"📝 Описание: {description}"
       )
+      btn_text = "🛒 Добавить в корзину"
     else:
       text = (
           f"🆔 <b>ID товару:</b> {prod_id}\n"
@@ -264,24 +271,176 @@ async def show_products_by_category(callback: CallbackQuery):
           f"📏 Розміри: {sizes}\n"
           f"📝 Опис: {description}"
       )
+      btn_text = "🛒 Додати в кошик"
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=btn_text, callback_data=f"buy_{prod_id}")]
+        ]
+    )
 
     if photo_id:
       await callback.message.answer_photo(
-          photo=photo_id, caption=text, parse_mode="HTML"
+          photo=photo_id, caption=text, parse_mode="HTML", reply_markup=kb
       )
     else:
-      await callback.message.answer(text, parse_mode="HTML")
+      await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
   await callback.answer()
+
+
+@router.callback_query(F.data.startswith("buy_"))
+async def add_to_cart(callback: CallbackQuery):
+  prod_id = callback.data.split("_")[1]
+  user_id = callback.from_user.id
+  lang = get_user_lang(user_id)
+
+  conn = sqlite3.connect("shop.db")
+  cursor = conn.cursor()
+  cursor.execute(
+      "INSERT INTO cart (user_id, product_id) VALUES (?, ?)", (user_id, prod_id)
+  )
+  conn.commit()
+  conn.close()
+
+  alert_text = (
+      "✅ Товар добавлен в корзину!"
+      if lang == "ru"
+      else "✅ Товар додано до кошику!"
+  )
+  await callback.answer(alert_text, show_alert=True)
 
 
 @router.message(F.text.in_(["🛒 Кошик", "🛒 Корзина"]))
 async def show_cart(message: Message):
   user_id = message.from_user.id
   lang = get_user_lang(user_id)
-  text = (
-      "Ваша корзина пуста." if lang == "ru" else "Ваш кошик порожній."
+
+  conn = sqlite3.connect("shop.db")
+  cursor = conn.cursor()
+  cursor.execute(
+      """
+        SELECT products.id, products.name, products.price 
+        FROM cart 
+        JOIN products ON cart.product_id = products.id 
+        WHERE cart.user_id = ?
+    """,
+      (user_id,),
   )
-  await message.answer(text)
+  items = cursor.fetchall()
+  conn.close()
+
+  if not items:
+    text = (
+        "Ваша корзина пуста 🛒" if lang == "ru" else "Ваш кошик порожній 🛒"
+    )
+    await message.answer(text)
+    return
+
+  text = "🛒 <b>Ваша корзина:</b>\n\n" if lang == "ru" else "🛒 <b>Ваш кошик:</b>\n\n"
+  for item in items:
+    text += f"▪️ {item[1]} — <b>{item[2]}</b>\n"
+
+  if lang == "ru":
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📦 Оформить заказ", callback_data="checkout"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🗑 Очистить корзину", callback_data="clear_cart"
+                )
+            ],
+        ]
+    )
+  else:
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📦 Оформити замовлення", callback_data="checkout"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🗑 Очистити кошик", callback_data="clear_cart"
+                )
+            ],
+        ]
+    )
+
+  await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "clear_cart")
+async def clear_cart(callback: CallbackQuery):
+  user_id = callback.from_user.id
+  lang = get_user_lang(user_id)
+
+  conn = sqlite3.connect("shop.db")
+  cursor = conn.cursor()
+  cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
+  conn.commit()
+  conn.close()
+
+  msg = "🗑 Корзина очищена!" if lang == "ru" else "🗑 Кошик очищено!"
+  await callback.message.edit_text(msg)
+  await callback.answer()
+
+
+@router.callback_query(F.data == "checkout")
+async def checkout_order(callback: CallbackQuery):
+  user_id = callback.from_user.id
+  username = callback.from_user.username
+  name = callback.from_user.full_name
+  lang = get_user_lang(user_id)
+
+  conn = sqlite3.connect("shop.db")
+  cursor = conn.cursor()
+  cursor.execute(
+      """
+        SELECT products.name, products.price 
+        FROM cart 
+        JOIN products ON cart.product_id = products.id 
+        WHERE cart.user_id = ?
+    """,
+      (user_id,),
+  )
+  items = cursor.fetchall()
+
+  cursor.execute("DELETE FROM cart WHERE user_id = ?", (user_id,))
+  cursor.execute("INSERT INTO orders (user_id, total_price) VALUES (?, ?)", (user_id, "Оформлено"))
+  conn.commit()
+  conn.close()
+
+  if not items:
+    await callback.answer(
+        "Корзина пуста!" if lang == "ru" else "Кошик порожній!", show_alert=True
+    )
+    return
+
+  order_text = (
+      f"🚨 <b>Новый заказ!</b>\n\nОт: {name} (@{username}, ID: <code>{user_id}</code>)\n\n"
+      if lang == "ru"
+      else f"🚨 <b>Нове замовлення!</b>\n\nВід: {name} (@{username}, ID: <code>{user_id}</code>)\n\n"
+  )
+  for item in items:
+    order_text += f"▪️ {item[1]} — {item[2]}\n"
+
+  try:
+    await callback.bot.send_message(ADMIN_ID, order_text, parse_mode="HTML")
+  except Exception as e:
+    print(f"Не удалось отправить заказ админу: {e}")
+
+  success_msg = (
+      "✅ Заказ успешно оформлен! Менеджер свяжется с вами в ближайшее время."
+      if lang == "ru"
+      else "✅ Замовлення успішно оформлено! Менеджер зв'яжеться з вами найближчим часом."
+  )
+  await callback.message.edit_text(success_msg)
+  await callback.answer()
 
 
 @router.message(F.text.in_(["📞 Зв'язок з менеджером", "📞 Связь с менеджером"]))
@@ -324,11 +483,11 @@ async def show_sizes(message: Message):
   user_id = message.from_user.id
   lang = get_user_lang(user_id)
   text = (
-      "Таблица размеров:\nS - ...\nM - ...\nL - ..."
+      "📐 <b>Таблица размеров:</b>\n\nS — рост 160-170\nM — рост 170-175\nL — рост 175-182\nXL — рост 182+"
       if lang == "ru"
-      else "Таблиця розмірів:\nS - ...\nM - ...\nL - ..."
+      else "📐 <b>Таблиця розмірів:</b>\n\nS — зріст 160-170\nM — зріст 170-175\nL — зріст 175-182\nXL — зріст 182+"
   )
-  await message.answer(text)
+  await message.answer(text, parse_mode="HTML")
 
 
 @router.message(F.text.in_(["📊 Статистика"]))
@@ -397,7 +556,7 @@ async def process_category_choice(callback: CallbackQuery, state: FSMContext):
   await state.update_data(category=category)
 
   await callback.message.edit_text(
-      f"Обрано категорію: <b>{category}</b>\n\nВведіть назву товару (англійською):",
+      f"Обрано категорію: <b>{category}</b>\n\nВведіть назву товару:",
       parse_mode="HTML",
   )
   await state.set_state(AddProduct.name)
@@ -408,7 +567,7 @@ async def process_category_choice(callback: CallbackQuery, state: FSMContext):
 async def process_name(message: Message, state: FSMContext):
   await state.update_data(name=message.text)
   await state.set_state(AddProduct.price)
-  await message.answer("Введіть ціну товару (наприклад: 1500 грн):")
+  await message.answer("Введіть ціну товару (наприклад: 2100 грн):")
 
 
 @router.message(AddProduct.price)
@@ -660,14 +819,14 @@ async def process_field_choice(callback: CallbackQuery, state: FSMContext):
 
   if lang == "ru":
     if field == "description":
-      msg = "Введите новое описание на <b>украинском</b>:"
+      msg = "Введите новое описание:"
     elif field == "price":
       msg = "Введите новую цену:"
     else:
       msg = "Введите новые размеры:"
   else:
     if field == "description":
-      msg = "Введіть новий опис <b>українською</b>:"
+      msg = "Введіть новий опис:"
     elif field == "price":
       msg = "Введіть нову ціну:"
     else:
@@ -724,12 +883,39 @@ async def cancel_handler(message: Message, state: FSMContext):
   await message.answer(msg, reply_markup=get_main_keyboard(user_id))
 
 
+# --- Flask для Render (чтобы хостинг не отключал бота) ---
+from flask import Flask
+import threading
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def index():
+  return "DripZone Bot is running!"
+
+
+def run_flask():
+  port = int(os.environ.get("PORT", 10000))
+  app.run(host="0.0.0.0", port=port)
+
+
 async def main():
   init_db()
   logging.basicConfig(level=logging.INFO)
-  bot = Bot(token="ТВОЙ_ТОКЕН_БОТА")
+
+  # Запуск Flask-сервера в отдельном потоке для Render
+  flask_thread = threading.Thread(target=run_flask)
+  flask_thread.daemon = True
+  flask_thread.start()
+
+  # Безопасное получение токена из переменных окружения
+  TOKEN = os.environ.get("BOT_TOKEN")
+  bot = Bot(token=TOKEN)
   dp = Dispatcher(storage=MemoryStorage())
   dp.include_router(router)
+
+  print("Бот і Flask успішно запущені!")
   await dp.start_polling(bot)
 
 
