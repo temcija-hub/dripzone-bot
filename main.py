@@ -88,8 +88,18 @@ def init_db():
 
   cursor.execute("SELECT COUNT(*) FROM categories")
   if cursor.fetchone()[0] == 0:
-    cursor.execute("INSERT INTO categories (name) VALUES ('Худі')")  # 1
-    cursor.execute("INSERT INTO categories (name) VALUES ('Штани')")  # 2
+    # Добавляем все нужные категории
+    categories_list = [
+        ("Худі",),
+        ("Штани",),
+        ("Футболки",),
+        ("Пуховики",),
+        ("Кросівки",),
+        ("Аксесуари",),
+    ]
+    cursor.executemany(
+        "INSERT INTO categories (name) VALUES (?)", categories_list
+    )
 
     default_products = [
         (
@@ -177,7 +187,6 @@ async def cmd_start(message: types.Message):
   init_db()
   user_id = message.from_user.id
 
-  # Записываем пользователя в базу для статистики
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
   cursor.execute(
@@ -273,7 +282,6 @@ async def admin_panel(message: types.Message):
   await message.answer("⚙️ **Панель адміністратора DripZone:**", reply_markup=kb)
 
 
-# Кнопка статистики
 @dp.callback_query(F.data == "admin_stats")
 async def admin_statistics(callback: types.CallbackQuery):
   conn = sqlite3.connect("shop.db")
@@ -340,7 +348,6 @@ async def admin_back(callback: types.CallbackQuery):
   await callback.answer()
 
 
-# Управление товарами (список для изменения/удаления)
 @dp.callback_query(F.data == "admin_manage")
 async def admin_manage_products(callback: types.CallbackQuery):
   conn = sqlite3.connect("shop.db")
@@ -374,7 +381,6 @@ async def admin_manage_products(callback: types.CallbackQuery):
   await callback.answer()
 
 
-# Меню конкретного товара для админа
 @dp.callback_query(F.data.startswith("adm_edit_"))
 async def admin_product_options(callback: types.CallbackQuery):
   prod_id = int(callback.data.split("_")[2])
@@ -411,7 +417,6 @@ async def admin_product_options(callback: types.CallbackQuery):
   await callback.answer()
 
 
-# Удаление товара
 @dp.callback_query(F.data.startswith("adm_del_"))
 async def admin_delete_product(callback: types.CallbackQuery):
   prod_id = int(callback.data.split("_")[2])
@@ -425,7 +430,6 @@ async def admin_delete_product(callback: types.CallbackQuery):
   await admin_manage_products(callback)
 
 
-# Изменение цены, размеров или описания через состояние
 @dp.callback_query(F.data.regexp(r"^set_[psd]_\d+$"))
 async def admin_start_edit(callback: types.CallbackQuery, state: FSMContext):
   data = callback.data.split("_")
@@ -641,7 +645,6 @@ async def show_product_card(callback: types.CallbackQuery):
       f"📝 <b>Опис:</b>\n{description}"
   )
 
-  # Сохраняем имя товара в callback_data кнопки заказа, чтобы засчитать заказ
   kb = InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -674,7 +677,6 @@ async def show_product_card(callback: types.CallbackQuery):
   await callback.answer()
 
 
-# Фиксация заказа при нажатии на «Замовити»
 @dp.callback_query(F.data.startswith("order_"))
 async def make_order(callback: types.CallbackQuery):
   prod_id = int(callback.data.split("_")[1])
@@ -694,7 +696,6 @@ async def make_order(callback: types.CallbackQuery):
     conn.commit()
   conn.close()
 
-  # Отправляем клиенту ссылку на менеджера для оплаты/связи
   await callback.answer(
       "Замовлення прийнято! Переходимо до менеджера... ✅", show_alert=True
   )
