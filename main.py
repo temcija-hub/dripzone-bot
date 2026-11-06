@@ -28,7 +28,7 @@ t = threading.Thread(target=run_web)
 t.daemon = True
 t.start()
 
-# 2. Инициализация БД (товары и корзина)
+# 2. Инициализация БД
 conn = sqlite3.connect('dripzone.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''
@@ -76,6 +76,14 @@ def get_main_keyboard():
   )
 
 
+def get_back_keyboard():
+  return InlineKeyboardMarkup(
+      inline_keyboard=[
+          [InlineKeyboardButton(text='🔙 Головне меню', callback_data='home')]
+      ]
+  )
+
+
 @dp.message(Command('start'))
 async def send_welcome(message: types.Message):
   await message.answer(
@@ -86,13 +94,19 @@ async def send_welcome(message: types.Message):
 
 @dp.callback_query(F.data == 'catalog')
 async def cb_catalog(callback: types.CallbackQuery):
+  await callback.answer()
   cursor.execute('SELECT id, name, price FROM products')
   products = cursor.fetchall()
   if not products:
-    await callback.message.answer(
-        '📦 Каталог наразі порожній. Адмін може додати товари через панель.'
+    await callback.message.edit_text(
+        '📦 Каталог наразі порожній.\nАдмін може додати товари через'
+        ' адмін-панель.',
+        reply_markup=get_back_keyboard(),
     )
   else:
+    await callback.message.edit_text(
+        '📦 **Каталог товарів:**', parse_mode='Markdown'
+    )
     for p in products:
       kb = InlineKeyboardMarkup(
           inline_keyboard=[
@@ -108,7 +122,9 @@ async def cb_catalog(callback: types.CallbackQuery):
           reply_markup=kb,
           parse_mode='Markdown',
       )
-  await callback.answer()
+    await callback.message.answer(
+        'Навігація:', reply_markup=get_back_keyboard()
+    )
 
 
 @dp.callback_query(F.data.startswith('buy_'))
@@ -126,13 +142,14 @@ async def cb_buy(callback: types.CallbackQuery):
         (callback.from_user.id, product_id, product[0], product[1]),
     )
     conn.commit()
-    await callback.answer(f'Товар "{product[0]}" додано до кошика! ✅')
+    await callback.answer(f'Товар "{product[0]}" додано до кошика! ✅', show_alert=True)
   else:
-    await callback.answer('Товар не знайдено!')
+    await callback.answer('Товар не знайдено!', show_alert=True)
 
 
 @dp.callback_query(F.data == 'cart')
 async def cb_cart(callback: types.CallbackQuery):
+  await callback.answer()
   cursor.execute(
       'SELECT product_name, price FROM cart WHERE user_id = ?',
       (callback.from_user.id,),
@@ -140,7 +157,9 @@ async def cb_cart(callback: types.CallbackQuery):
   items = cursor.fetchall()
 
   if not items:
-    await callback.message.answer('🛒 Ваш кошик порожній.')
+    await callback.message.edit_text(
+        '🛒 Ваш кошик порожній.', reply_markup=get_back_keyboard()
+    )
   else:
     text = '🛒 **Ваш кошик:**\n\n'
     for item in items:
@@ -158,58 +177,64 @@ async def cb_cart(callback: types.CallbackQuery):
                     text='🗑 Очистити кошик', callback_data='clear_cart'
                 )
             ],
+            [InlineKeyboardButton(text='🔙 Головне меню', callback_data='home')],
         ]
     )
-    await callback.message.answer(text, reply_markup=kb, parse_mode='Markdown')
-  await callback.answer()
+    await callback.message.edit_text(
+        text, reply_markup=kb, parse_mode='Markdown'
+    )
 
 
 @dp.callback_query(F.data == 'clear_cart')
 async def cb_clear_cart(callback: types.CallbackQuery):
+  await callback.answer('Кошик очищено')
   cursor.execute('DELETE FROM cart WHERE user_id = ?', (callback.from_user.id,))
   conn.commit()
-  await callback.message.answer('🗑 Ваш кошик очищено.')
-  await callback.answer()
+  await callback.message.edit_text(
+      '🗑 Ваш кошик очищено.', reply_markup=get_back_keyboard()
+  )
 
 
 @dp.callback_query(F.data == 'checkout')
 async def cb_checkout(callback: types.CallbackQuery):
+  await callback.answer('Замовлення оформлено')
   cursor.execute('DELETE FROM cart WHERE user_id = ?', (callback.from_user.id,))
   conn.commit()
-  await callback.message.answer(
-      '✅ Дякуємо за замовлення! Менеджер скоро зв\'яжеться з вами для уточнення'
-      ' деталей доставки.'
+  await callback.message.edit_text(
+      '✅ Дякуємо за замовлення! Менеджер скоро зв\'яжеться з вами.',
+      reply_markup=get_back_keyboard(),
   )
-  await callback.answer()
 
 
 @dp.callback_query(F.data == 'reviews')
 async def cb_reviews(callback: types.CallbackQuery):
-  await callback.message.answer(
-      '💬 Поточні відгуки покупців можна переглянути в нашому каналі.'
-  )
   await callback.answer()
+  await callback.message.edit_text(
+      '💬 Відгуки покупців у нашому каналі.', reply_markup=get_back_keyboard()
+  )
 
 
 @dp.callback_query(F.data == 'sizes')
 async def cb_sizes(callback: types.CallbackQuery):
-  await callback.message.answer('📏 Доступні розміри: S, M, L, XL, XXL.')
   await callback.answer()
+  await callback.message.edit_text(
+      '📏 Доступні розміри: S, M, L, XL, XXL.', reply_markup=get_back_keyboard()
+  )
 
 
 @dp.callback_query(F.data == 'statistics')
 async def cb_stats(callback: types.CallbackQuery):
+  await callback.answer()
   cursor.execute('SELECT COUNT(*) FROM products')
   count = cursor.fetchone()[0]
-  await callback.message.answer(
-      f'📊 **Статистика магазину:**\nТоварів у каталозі: {count}',
-      parse_mode='Markdown',
+  await callback.message.edit_text(
+      f'📊 Товарів у каталозі: {count}', reply_markup=get_back_keyboard()
   )
-  await callback.answer()
 
 
 @dp.callback_query(F.data == 'admin_panel')
 async def cb_admin(callback: types.CallbackQuery):
+  await callback.answer()
   keyboard = InlineKeyboardMarkup(
       inline_keyboard=[
           [
@@ -220,19 +245,18 @@ async def cb_admin(callback: types.CallbackQuery):
           [InlineKeyboardButton(text='🔙 Головне меню', callback_data='home')],
       ]
   )
-  await callback.message.answer(
+  await callback.message.edit_text(
       '⚙️ **Панель адміністратора:**',
       reply_markup=keyboard,
       parse_mode='Markdown',
   )
-  await callback.answer()
 
 
 @dp.callback_query(F.data == 'add_product')
 async def cb_add_product(callback: types.CallbackQuery, state: FSMContext):
-  await callback.message.answer('Введи назву нового товару:')
-  await state.set_state(AdminState.waiting_for_name)
   await callback.answer()
+  await callback.message.edit_text('Введи назву нового товару:')
+  await state.set_state(AdminState.waiting_for_name)
 
 
 @dp.message(AdminState.waiting_for_name)
@@ -255,16 +279,17 @@ async def process_product_price(message: types.Message, state: FSMContext):
 
   await state.clear()
   await message.answer(
-      f'✅ Товар "{name}" за ціною "{price}" успішно додано до каталогу!'
+      f'✅ Товар "{name}" за ціною "{price}" успішно додано до каталогу!',
+      reply_markup=get_main_keyboard(),
   )
 
 
 @dp.callback_query(F.data == 'home')
 async def cb_home(callback: types.CallbackQuery):
-  await callback.message.answer(
+  await callback.answer()
+  await callback.message.edit_text(
       'Головне меню:', reply_markup=get_main_keyboard()
   )
-  await callback.answer()
 
 
 async def main():
