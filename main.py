@@ -14,8 +14,8 @@ TOKEN = os.environ.get("BOT_TOKEN")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ID администратора (замени на свой реальный Telegram ID)
-ADMIN_ID = 2125409043   
+# Твой реальный ID администратора
+ADMIN_ID = 2125409043  
 
 
 # Состояния
@@ -495,7 +495,7 @@ async def edit_price_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @dp.message(EditProduct.waiting_for_new_price)
-async def edit_price_save(message: types.Message, state: FSMContext):
+async def edit_price_save(message: types.Message, state: FsmContext if 'FsmContext' in globals() else FSMContext):
     data = await state.get_data()
     conn = sqlite3.connect("dripzone.db")
     cursor = conn.cursor()
