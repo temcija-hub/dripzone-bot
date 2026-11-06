@@ -495,7 +495,7 @@ async def edit_price_start(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @dp.message(EditProduct.waiting_for_new_price)
-async def edit_price_save(message: types.Message, state: FsmContext if 'FsmContext' in globals() else FSMContext):
+async def edit_price_save(message: types.Message, state: FSMContext):
     data = await state.get_data()
     conn = sqlite3.connect("dripzone.db")
     cursor = conn.cursor()
