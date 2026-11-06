@@ -97,8 +97,6 @@ async def process_language(callback: types.CallbackQuery, state: FSMContext):
             [types.KeyboardButton(text="📐 Розміри"), types.KeyboardButton(text="💬 Зв'язок з менеджером")],
             [types.KeyboardButton(text="⭐ Відгуки")]
         ]
-        admin_btn = "⚙️ Адмін панель"
-        admin_msg = "Вам доступна панель адміністратора:"
     else:
         text = "Добро пожаловать в DripZone! Главное меню:"
         kb = [
@@ -106,21 +104,15 @@ async def process_language(callback: types.CallbackQuery, state: FSMContext):
             [types.KeyboardButton(text="📐 Размеры"), types.KeyboardButton(text="💬 Связь с менеджером")],
             [types.KeyboardButton(text="⭐ Отзывы")]
         ]
-        admin_btn = "⚙️ Админ панель"
-        admin_msg = "Вам доступна панель администратора:"
+        
+    # Если зашел админ, добавляем кнопку админки прямо в общую клавиатуру
+    if callback.from_user.id == ADMIN_ID:
+        kb.append([types.KeyboardButton(text="⚙️ Адмін панель")])
         
     markup = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
     
     await callback.message.edit_text("Мову успішно обрано! / Язык успешно выбран!")
     await callback.message.answer(text, reply_markup=markup)
-    
-    if callback.from_user.id == ADMIN_ID:
-        admin_kb = types.ReplyKeyboardMarkup(
-            keyboard=[[types.KeyboardButton(text=admin_btn)]], 
-            resize_keyboard=True
-        )
-        await callback.message.answer(admin_msg, reply_markup=admin_kb)
-    
     await callback.answer()
 
 
@@ -309,7 +301,7 @@ async def checkout_order(callback: types.CallbackQuery):
 
 
 # --- Админ-панель ---
-@dp.message(F.text.in_(["⚙️ Адмін панель", "⚙️ Админ панель"]))
+@dp.message(F.text == "⚙️ Адмін панель")
 async def admin_panel(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
