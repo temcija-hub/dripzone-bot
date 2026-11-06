@@ -7,7 +7,7 @@ from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 from flask import Flask
 
 # 1. Настройка Flask для Render
@@ -59,72 +59,53 @@ class AdminState(StatesGroup):
   waiting_for_price = State()
 
 
+# Постоянная клавиатура снизу
 def get_main_keyboard():
-  return InlineKeyboardMarkup(
-      inline_keyboard=[
-          [InlineKeyboardButton(text='📦 Каталог', callback_data='catalog')],
-          [InlineKeyboardButton(text='🛒 Кошик', callback_data='cart')],
-          [InlineKeyboardButton(text='💬 Відгуки', callback_data='reviews')],
-          [InlineKeyboardButton(text='📏 Розміри', callback_data='sizes')],
-          [InlineKeyboardButton(text='📊 Статистика', callback_data='statistics')],
+  return ReplyKeyboardMarkup(
+      keyboard=[
+          [KeyboardButton(text='📦 Каталог'), KeyboardButton(text='🛒 Кошик')],
+          [KeyboardButton(text='💬 Відгуки'), KeyboardButton(text='📏 Розміри')],
           [
-              InlineKeyboardButton(
-                  text='⚙️ Адмін панель', callback_data='admin_panel'
-              )
+              KeyboardButton(text='📊 Статистика'),
+              KeyboardButton(text='⚙️ Адмін панель'),
           ],
-      ]
-  )
-
-
-def get_back_keyboard():
-  return InlineKeyboardMarkup(
-      inline_keyboard=[
-          [InlineKeyboardButton(text='🔙 Головне меню', callback_data='home')]
-      ]
+      ],
+      resize_keyboard=True,
   )
 
 
 @dp.message(Command('start'))
 async def send_welcome(message: types.Message):
   await message.answer(
-      'Вітаю у DRIPZONE Shop! Вибери потрібний розділ:',
+      'Вітаю у DRIPZONE Shop! Вибери потрібний розділ нижче:',
       reply_markup=get_main_keyboard(),
   )
 
 
-@dp.callback_query(F.data == 'catalog')
-async def cb_catalog(callback: types.CallbackQuery):
-  await callback.answer()
+@dp.message(F.text == '📦 Каталог')
+async def show_catalog(message: types.Message):
   cursor.execute('SELECT id, name, price FROM products')
   products = cursor.fetchall()
   if not products:
-    await callback.message.edit_text(
-        '📦 Каталог наразі порожній.\nАдмін може додати товари через'
-        ' адмін-панель.',
-        reply_markup=get_back_keyboard(),
+    await message.answer(
+        '📦 Каталог наразі порожній.\nАдмін може додати товари через панель.'
     )
   else:
-    await callback.message.edit_text(
-        '📦 **Каталог товарів:**', parse_mode='Markdown'
-    )
     for p in products:
-      kb = InlineKeyboardMarkup(
+      kb = types.InlineKeyboardMarkup(
           inline_keyboard=[
               [
-                  InlineKeyboardButton(
+                  types.InlineKeyboardButton(
                       text='🛒 Додати в кошик', callback_data=f'buy_{p[0]}'
                   )
               ]
           ]
       )
-      await callback.message.answer(
+      await message.answer(
           f'📦 **{p[1]}**\n💵 Ціна: {p[2]}',
           reply_markup=kb,
           parse_mode='Markdown',
       )
-    await callback.message.answer(
-        'Навігація:', reply_markup=get_back_keyboard()
-    )
 
 
 @dp.callback_query(F.data.startswith('buy_'))
@@ -147,42 +128,36 @@ async def cb_buy(callback: types.CallbackQuery):
     await callback.answer('Товар не знайдено!', show_alert=True)
 
 
-@dp.callback_query(F.data == 'cart')
-async def cb_cart(callback: types.CallbackQuery):
-  await callback.answer()
+@dp.message(F.text == '🛒 Кошик')
+async def show_cart(message: types.Message):
   cursor.execute(
       'SELECT product_name, price FROM cart WHERE user_id = ?',
-      (callback.from_user.id,),
+      (message.from_user.id,),
   )
   items = cursor.fetchall()
 
   if not items:
-    await callback.message.edit_text(
-        '🛒 Ваш кошик порожній.', reply_markup=get_back_keyboard()
-    )
+    await message.answer('🛒 Ваш кошик порожній.')
   else:
     text = '🛒 **Ваш кошик:**\n\n'
     for item in items:
       text += f'• {item[0]} — {item[1]}\n'
 
-    kb = InlineKeyboardMarkup(
+    kb = types.InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
+                types.InlineKeyboardButton(
                     text='🚀 Оформити замовлення', callback_data='checkout'
                 )
             ],
             [
-                InlineKeyboardButton(
+                types.InlineKeyboardButton(
                     text='🗑 Очистити кошик', callback_data='clear_cart'
                 )
             ],
-            [InlineKeyboardButton(text='🔙 Головне меню', callback_data='home')],
         ]
     )
-    await callback.message.edit_text(
-        text, reply_markup=kb, parse_mode='Markdown'
-    )
+    await message.answer(text, reply_markup=kb, parse_mode='Markdown')
 
 
 @dp.callback_query(F.data == 'clear_cart')
@@ -190,9 +165,7 @@ async def cb_clear_cart(callback: types.CallbackQuery):
   await callback.answer('Кошик очищено')
   cursor.execute('DELETE FROM cart WHERE user_id = ?', (callback.from_user.id,))
   conn.commit()
-  await callback.message.edit_text(
-      '🗑 Ваш кошик очищено.', reply_markup=get_back_keyboard()
-  )
+  await callback.message.answer('🗑 Ваш кошик очищено.')
 
 
 @dp.callback_query(F.data == 'checkout')
@@ -200,62 +173,48 @@ async def cb_checkout(callback: types.CallbackQuery):
   await callback.answer('Замовлення оформлено')
   cursor.execute('DELETE FROM cart WHERE user_id = ?', (callback.from_user.id,))
   conn.commit()
-  await callback.message.edit_text(
-      '✅ Дякуємо за замовлення! Менеджер скоро зв\'яжеться з вами.',
-      reply_markup=get_back_keyboard(),
+  await callback.message.answer(
+      '✅ Дякуємо за замовлення! Менеджер скоро зв\'яжеться з вами.'
   )
 
 
-@dp.callback_query(F.data == 'reviews')
-async def cb_reviews(callback: types.CallbackQuery):
-  await callback.answer()
-  await callback.message.edit_text(
-      '💬 Відгуки покупців у нашому каналі.', reply_markup=get_back_keyboard()
-  )
+@dp.message(F.text == '💬 Відгуки')
+async def show_reviews(message: types.Message):
+  await message.answer('💬 Відгуки покупців у нашому каналі.')
 
 
-@dp.callback_query(F.data == 'sizes')
-async def cb_sizes(callback: types.CallbackQuery):
-  await callback.answer()
-  await callback.message.edit_text(
-      '📏 Доступні розміри: S, M, L, XL, XXL.', reply_markup=get_back_keyboard()
-  )
+@dp.message(F.text == '📏 Розміри')
+async def show_sizes(message: types.Message):
+  await message.answer('📏 Доступні розміри: S, M, L, XL, XXL.')
 
 
-@dp.callback_query(F.data == 'statistics')
-async def cb_stats(callback: types.CallbackQuery):
-  await callback.answer()
+@dp.message(F.text == '📊 Статистика')
+async def show_stats(message: types.Message):
   cursor.execute('SELECT COUNT(*) FROM products')
   count = cursor.fetchone()[0]
-  await callback.message.edit_text(
-      f'📊 Товарів у каталозі: {count}', reply_markup=get_back_keyboard()
-  )
+  await message.answer(f'📊 Товарів у каталозі: {count}')
 
 
-@dp.callback_query(F.data == 'admin_panel')
-async def cb_admin(callback: types.CallbackQuery):
-  await callback.answer()
-  keyboard = InlineKeyboardMarkup(
+@dp.message(F.text == '⚙️ Адмін панель')
+async def show_admin(message: types.Message):
+  kb = types.InlineKeyboardMarkup(
       inline_keyboard=[
           [
-              InlineKeyboardButton(
+              types.InlineKeyboardButton(
                   text='➕ Додати товар', callback_data='add_product'
               )
-          ],
-          [InlineKeyboardButton(text='🔙 Головне меню', callback_data='home')],
+          ]
       ]
   )
-  await callback.message.edit_text(
-      '⚙️ **Панель адміністратора:**',
-      reply_markup=keyboard,
-      parse_mode='Markdown',
+  await message.answer(
+      '⚙️ **Панель адміністратора:**', reply_markup=kb, parse_mode='Markdown'
   )
 
 
 @dp.callback_query(F.data == 'add_product')
 async def cb_add_product(callback: types.CallbackQuery, state: FSMContext):
   await callback.answer()
-  await callback.message.edit_text('Введи назву нового товару:')
+  await callback.message.answer('Введи назву нового товару:')
   await state.set_state(AdminState.waiting_for_name)
 
 
@@ -281,14 +240,6 @@ async def process_product_price(message: types.Message, state: FSMContext):
   await message.answer(
       f'✅ Товар "{name}" за ціною "{price}" успішно додано до каталогу!',
       reply_markup=get_main_keyboard(),
-  )
-
-
-@dp.callback_query(F.data == 'home')
-async def cb_home(callback: types.CallbackQuery):
-  await callback.answer()
-  await callback.message.edit_text(
-      'Головне меню:', reply_markup=get_main_keyboard()
   )
 
 
