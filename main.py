@@ -1,491 +1,312 @@
-import asyncio
-import logging
 import os
 import sqlite3
 import threading
+from flask import Flask
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardMarkup,
-)
-from flask import Flask
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# 1. Настройка Flask для Render
-app = Flask('')
-
-
-@app.route('/')
-def home():
-  return 'Bot is running!'
-
-
-def run_web():
-  port = int(os.environ.get('PORT', 10000))
-  app.run(host='0.0.0.0', port=port)
-
-
-t = threading.Thread(target=run_web)
-t.daemon = True
-t.start()
-
-# 2. Инициализация БД
-conn = sqlite3.connect('dripzone.db', check_same_thread=False)
-cursor = conn.cursor()
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category TEXT,
-        name TEXT,
-        description TEXT,
-        price TEXT,
-        photo_id TEXT
-    )
-''')
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS cart (
-        user_id INTEGER,
-        product_id INTEGER,
-        product_name TEXT,
-        price TEXT
-    )
-''')
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
-        lang TEXT DEFAULT 'uk'
-    )
-''')
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER
-    )
-''')
-conn.commit()
-
-# 3. Безопасная инициализация бота через переменную окружения Render
-TOKEN = os.environ.get('BOT_TOKEN')
-if not TOKEN:
-  raise ValueError('Не задан токен бота в переменных окружения BOT_TOKEN!')
+# Токен берется из переменных окружения Render
+TOKEN = os.environ.get("BOT_TOKEN")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-
-class AdminState(StatesGroup):
-  waiting_for_category = State()
-  waiting_for_photo = State()
-  waiting_for_name = State()
-  waiting_for_description = State()
-  waiting_for_price = State()
+# ID администратора (при необходимости измени на свой Telegram ID)
+ADMIN_ID = 123456789  
 
 
-texts = {
-    'uk': {
-        'welcome': (
-            'Вітаю у DRIPZONE Shop! Вибери потрібний розділ нижче:'
-        ),
-        'catalog': '🔥 Каталог брендів',
-        'cart': '🛒 Кошик',
-        'reviews': '💬 Відгуки',
-        'manager': '💬 Зв\'язок з менеджером',
-        'stats': '📊 Статистика',
-        'admin': '⚙️ Адмін панель',
-        'empty_cart': '🛒 Ваш кошик порожній.',
-        'cart_title': '🛒 **Ваш кошик:**\n\n',
-        'checkout_btn': '🚀 Оформити замовлення',
-        'clear_btn': '🗑 Очистити кошик',
-        'order_success': (
-            '✅ Дякуємо за замовлення! Менеджер скоро зв\'яжеться з вами.'
-        ),
-        'manager_text': (
-            '📱 З усіх питань пиши нашому менеджеру: @Armenhik_gang'
-        ),
-        'reviews_text': (
-            '💬 Натисни кнопку нижче, щоб переглянути відгуки наших покупців:'
-        ),
-        'reviews_btn': '💬 Перейти до відгуків',
-        'empty_cat': '📦 У цій категорії поки немає товарів.',
-        'choose_cat': '📁 Вибери категорію одягу чи аксесуарів:',
-        'add_cart_btn': '🛒 Додати в кошик',
-    },
-    'ru': {
-        'welcome': (
-            'Приветствую в DRIPZONE Shop! Выбери нужный раздел ниже:'
-        ),
-        'catalog': '🔥 Каталог брендов',
-        'cart': '🛒 Корзина',
-        'reviews': '💬 Отзывы',
-        'manager': '💬 Связь с менеджером',
-        'stats': '📊 Статистика',
-        'admin': '⚙️ Админ панель',
-        'empty_cart': '🛒 Ваша корзина пуста.',
-        'cart_title': '🛒 **Ваша корзина:**\n\n',
-        'checkout_btn': '🚀 Оформить заказ',
-        'clear_btn': '🗑 Очистить корзину',
-        'order_success': (
-            '✅ Спасибо за заказ! Менеджер скоро свяжется с вами.'
-        ),
-        'manager_text': '📱 По всем вопросам пиши нашему менеджеру: @Armenhik_gang',
-        'reviews_text': (
-            '💬 Нажми кнопку ниже, чтобы посмотреть отзывы наших покупателей:'
-        ),
-        'reviews_btn': '💬 Перейти к отзывам',
-        'empty_cat': '📦 В этой категории пока нет товаров.',
-        'choose_cat': '📁 Выбери категорию одежды или аксессуаров:',
-        'add_cart_btn': '🛒 Добавить в корзину',
-    },
-}
+# Состояния для FSM (добавление и редактирование)
+class AddProduct(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_description = State()
+    waiting_for_price = State()
+    waiting_for_photo = State()
 
 
-def get_user_lang(user_id):
-  cursor.execute('SELECT lang FROM users WHERE user_id = ?', (user_id,))
-  row = cursor.fetchone()
-  return row[0] if row else 'uk'
+class EditProduct(StatesGroup):
+    waiting_for_new_name = State()
+    waiting_for_new_description = State()
+    waiting_for_new_price = State()
 
 
-def get_main_keyboard(lang='uk'):
-  t = texts[lang]
-  return ReplyKeyboardMarkup(
-      keyboard=[
-          [KeyboardButton(text=t['catalog']), KeyboardButton(text=t['cart'])],
-          [KeyboardButton(text=t['reviews']), KeyboardButton(text=t['manager'])],
-          [KeyboardButton(text=t['stats']), KeyboardButton(text=t['admin'])],
-      ],
-      resize_keyboard=True,
-  )
-
-
-def translate_text(text, lang):
-  if lang == 'uk':
-    return text
-  replacements = {
-      'Футболки': 'Футболки',
-      'Худі': 'Худи',
-      'Кофти': 'Кофты',
-      'Штани': 'Брюки',
-      'Кросівки': 'Кроссовки',
-      'Аксесуари': 'Аксессуары',
-  }
-  for k, v in replacements.items():
-    text = text.replace(k, v)
-  return text
-
-
-@dp.message(Command('start'))
-async def send_welcome(message: types.Message):
-  cursor.execute(
-      'INSERT OR IGNORE INTO users (user_id, lang) VALUES (?, ?)',
-      (message.from_user.id, 'uk'),
-  )
-  conn.commit()
-
-  lang_kb = InlineKeyboardMarkup(
-      inline_keyboard=[
-          [
-              InlineKeyboardButton(
-                  text='🇺🇦 Українська', callback_data='lang_uk'
-              ),
-              InlineKeyboardButton(text='🇷🇺 Русский', callback_data='lang_ru'),
-          ]
-      ]
-  )
-  await message.answer(
-      'Виберіть мову / Выберите язык:', reply_markup=lang_kb
-  )
-
-
-@dp.callback_query(F.data.startswith('lang_'))
-async def set_language(callback: types.CallbackQuery):
-  await callback.answer()
-  lang = callback.data.split('_')[1]
-  cursor.execute(
-      'UPDATE users SET lang = ? WHERE user_id = ?',
-      (lang, callback.from_user.id),
-  )
-  conn.commit()
-  t = texts[lang]
-  await callback.message.answer(
-      t['welcome'], reply_markup=get_main_keyboard(lang)
-  )
-
-
-@dp.message(F.text.in_(['🔥 Каталог брендів', '🔥 Каталог брендов']))
-async def show_categories(message: types.Message):
-  lang = get_user_lang(message.from_user.id)
-  t = texts[lang]
-  kb = InlineKeyboardMarkup(
-      inline_keyboard=[
-          [InlineKeyboardButton(text='👕 Футболки', callback_data='cat_Футболки')],
-          [InlineKeyboardButton(text='🧥 Худі', callback_data='cat_Худі')],
-          [InlineKeyboardButton(text='🧶 Кофти', callback_data='cat_Кофти')],
-          [InlineKeyboardButton(text='👖 Штани', callback_data='cat_Штани')],
-          [InlineKeyboardButton(text='👟 Кросівки', callback_data='cat_Кросівки')],
-          [
-              InlineKeyboardButton(
-                  text='🧢 Аксесуари', callback_data='cat_Аксесуари'
-              )
-          ],
-      ]
-  )
-  await message.answer(t['choose_cat'], reply_markup=kb)
-
-
-@dp.callback_query(F.data.startswith('cat_'))
-async def show_products_by_category(callback: types.CallbackQuery):
-  await callback.answer()
-  lang = get_user_lang(callback.from_user.id)
-  t = texts[lang]
-  category = callback.data.split('_', 1)[1]
-
-  cursor.execute(
-      'SELECT id, name, description, price, photo_id FROM products WHERE'
-      ' category = ?',
-      (category,),
-  )
-  products = cursor.fetchall()
-  translated_cat = translate_text(category, lang)
-
-  if not products:
-    await callback.message.answer(t['empty_cat'])
-  else:
-    for p in products:
-      prod_name = translate_text(p[1], lang)
-      prod_desc = translate_text(p[2] or '', lang)
-      caption = f'📦 **{prod_name}**\n📝 {prod_desc}\n💵 Ціна: {p[3]}'
-
-      kb = InlineKeyboardMarkup(
-          inline_keyboard=[
-              [
-                  InlineKeyboardButton(
-                      text=t['add_cart_btn'], callback_data=f'buy_{p[0]}'
-                  )
-              ]
-          ]
-      )
-      if p[4]:
-        await callback.message.answer_photo(
-            photo=p[4], caption=caption, reply_markup=kb, parse_mode='Markdown'
+# Инициализация базы данных
+def init_db():
+    conn = sqlite3.connect("dripzone.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            description TEXT,
+            price TEXT,
+            photo TEXT
         )
-      else:
-        await callback.message.answer(
-            caption, reply_markup=kb, parse_mode='Markdown'
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+
+# --- Команда /start ---
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    kb = [
+        [types.KeyboardButton(text="🛍 Каталог товаров")],
+        [types.KeyboardButton(text="🛒 Корзина")]
+    ]
+    markup = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+    await message.answer("Добро пожаловать в DripZone! Выберите действие:", reply_markup=markup)
+    
+    # Если это админ, показываем кнопку админ-панели
+    if message.from_user.id == ADMIN_ID:
+        admin_kb = types.ReplyKeyboardMarkup(
+            keyboard=[[types.KeyboardButton(text="⚙️ Админ-панель")]], 
+            resize_keyboard=True
         )
+        await message.answer("Вам доступна панель администратора:", reply_markup=admin_kb)
 
 
-@dp.callback_query(F.data.startswith('buy_'))
-async def cb_buy(callback: types.CallbackQuery):
-  product_id = int(callback.data.split('_')[1])
-  cursor.execute(
-      'SELECT name, price FROM products WHERE id = ?', (product_id,)
-  )
-  product = cursor.fetchone()
+# --- Админ-панель ---
+@dp.message(F.text == "⚙️ Админ-панель")
+async def admin_panel(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Добавить товар", callback_data="add_product")],
+        [InlineKeyboardButton(text="📦 Управление товарами", callback_data="manage_products")]
+    ])
+    await message.answer("Панель администратора:", reply_markup=kb)
 
-  if product:
+
+# --- Добавление товара (Шаг 1) ---
+@dp.callback_query(F.data == "add_product")
+async def start_add_product(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    await state.set_state(AddProduct.waiting_for_name)
+    await callback.message.answer("Введите название товара:")
+    await callback.answer()
+
+
+@dp.message(AddProduct.waiting_for_name)
+async def process_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await state.set_state(AddProduct.waiting_for_description)
+    await message.answer("Введите описание товара:")
+
+
+@dp.message(AddProduct.waiting_for_description)
+async def process_description(message: types.Message, state: FSMContext):
+    await state.update_data(description=message.text)
+    await state.set_state(AddProduct.waiting_for_price)
+    await message.answer("Введите цену товара:")
+
+
+@dp.message(AddProduct.waiting_for_price)
+async def process_price(message: types.Message, state: FSMContext):
+    await state.update_data(price=message.text)
+    await state.set_state(AddProduct.waiting_for_photo)
+    await message.answer("Отправьте фото товара (картинку):")
+
+
+@dp.message(AddProduct.waiting_for_photo, F.photo)
+async def process_photo(message: types.Message, state: FSMContext):
+    photo_id = message.photo[-1].file_id
+    data = await state.get_data()
+    
+    conn = sqlite3.connect("dripzone.db")
+    cursor = conn.cursor()
     cursor.execute(
-        'INSERT INTO cart (user_id, product_id, product_name, price) VALUES'
-        ' (?, ?, ?, ?)',
-        (callback.from_user.id, product_id, product[0], product[1]),
+        "INSERT INTO products (name, description, price, photo) VALUES (?, ?, ?, ?)",
+        (data["name"], data["description"], data["price"], photo_id)
     )
     conn.commit()
-    await callback.answer('Товар додано до кошика! ✅', show_alert=True)
-  else:
-    await callback.answer('Товар не знайдено!', show_alert=True)
+    conn.close()
+    
+    await state.clear()
+    await message.answer("✅ Товар успешно добавлен!")
 
 
-@dp.message(F.text.in_(['🛒 Кошик', '🛒 Корзина']))
-async def show_cart(message: types.Message):
-  lang = get_user_lang(message.from_user.id)
-  t = texts[lang]
-  cursor.execute(
-      'SELECT product_name, price FROM cart WHERE user_id = ?',
-      (message.from_user.id,),
-  )
-  items = cursor.fetchall()
-
-  if not items:
-    await message.answer(t['empty_cart'])
-  else:
-    text = t['cart_title']
-    for item in items:
-      p_name = translate_text(item[0], lang)
-      text += f'• {p_name} — {item[1]}\n'
-
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=t['checkout_btn'], callback_data='checkout'
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=t['clear_btn'], callback_data='clear_cart'
-                )
-            ],
-        ]
-    )
-    await message.answer(text, reply_markup=kb, parse_mode='Markdown')
+# --- Управление и просмотр товаров для админа ---
+@dp.callback_query(F.data == "manage_products")
+async def manage_products(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    
+    conn = sqlite3.connect("dripzone.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, price FROM products")
+    products = cursor.fetchall()
+    conn.close()
+    
+    if not products:
+        await callback.message.answer("📭 Товаров пока нет.")
+        await callback.answer()
+        return
+    
+    for prod in products:
+        prod_id, name, price = prod[0], prod[1], prod[2]
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Изменить", callback_data=f"edit_prod_{prod_id}")],
+            [InlineKeyboardButton(text="❌ Удалить", callback_data=f"del_prod_{prod_id}")]
+        ])
+        await callback.message.answer(f"📦 <b>{name}</b>\n💰 Цена: {price}", parse_mode="HTML", reply_markup=kb)
+    
+    await callback.answer()
 
 
-@dp.callback_query(F.data == 'clear_cart')
-async def cb_clear_cart(callback: types.CallbackQuery):
-  await callback.answer('Очищено')
-  cursor.execute('DELETE FROM cart WHERE user_id = ?', (callback.from_user.id,))
-  conn.commit()
-  await callback.message.answer('🗑 Кошик очищено.')
+# --- Удаление товара ---
+@dp.callback_query(F.data.startswith("del_prod_"))
+async def delete_product(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    
+    prod_id = callback.data.split("_")[2]
+    conn = sqlite3.connect("dripzone.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM products WHERE id = ?", (prod_id,))
+    conn.commit()
+    conn.close()
+    
+    await callback.message.edit_text("✅ Товар удален!")
+    await callback.answer()
 
 
-@dp.callback_query(F.data == 'checkout')
-async def cb_checkout(callback: types.CallbackQuery):
-  lang = get_user_lang(callback.from_user.id)
-  t = texts[lang]
-  await callback.answer('Замовлення оформлено')
-  cursor.execute(
-      'INSERT INTO orders (user_id) VALUES (?)', (callback.from_user.id,)
-  )
-  cursor.execute('DELETE FROM cart WHERE user_id = ?', (callback.from_user.id,))
-  conn.commit()
-  await callback.message.answer(t['order_success'])
+# --- Меню редактирования товара ---
+@dp.callback_query(F.data.startswith("edit_prod_"))
+async def edit_product_menu(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    
+    prod_id = callback.data.split("_")[2]
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Название", callback_data=f"set_name_{prod_id}")],
+        [InlineKeyboardButton(text="📄 Описание", callback_data=f"set_desc_{prod_id}")],
+        [InlineKeyboardButton(text="💰 Цена", callback_data=f"set_price_{prod_id}")]
+    ])
+    await callback.message.edit_text("Что именно вы хотите изменить?", reply_markup=kb)
+    await callback.answer()
 
 
-@dp.message(F.text.in_(['💬 Відгуки', '💬 Отзывы']))
-async def show_reviews(message: types.Message):
-  lang = get_user_lang(message.from_user.id)
-  t = texts[lang]
-  reviews_kb = InlineKeyboardMarkup(
-      inline_keyboard=[
-          [InlineKeyboardButton(text=t['reviews_btn'], url='https://t.me/dripproe')]
-      ]
-  )
-  await message.answer(t['reviews_text'], reply_markup=reviews_kb)
+# Редактирование названия
+@dp.callback_query(F.data.startswith("set_name_"))
+async def edit_name_start(callback: types.CallbackQuery, state: FSMContext):
+    prod_id = callback.data.split("_")[2]
+    await state.update_data(edit_id=prod_id)
+    await state.set_state(EditProduct.waiting_for_new_name)
+    await callback.message.answer("Введи новое название:")
+    await callback.answer()
+
+@dp.message(EditProduct.waiting_for_new_name)
+async def edit_name_save(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    conn = sqlite3.connect("dripzone.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE products SET name = ? WHERE id = ?", (message.text, data["edit_id"]))
+    conn.commit()
+    conn.close()
+    await state.clear()
+    await message.answer("✅ Название обновлено!")
 
 
-@dp.message(
-    F.text.in_(["💬 Зв'язок з менеджером", '💬 Связь с менеджером'])
-)
-async def show_manager(message: types.Message):
-  lang = get_user_lang(message.from_user.id)
-  t = texts[lang]
-  await message.answer(t['manager_text'])
+# Редактирование описания
+@dp.callback_query(F.data.startswith("set_desc_"))
+async def edit_desc_start(callback: types.CallbackQuery, state: FSMContext):
+    prod_id = callback.data.split("_")[2]
+    await state.update_data(edit_id=prod_id)
+    await state.set_state(EditProduct.waiting_for_new_description)
+    await callback.message.answer("Введи новое описание:")
+    await callback.answer()
+
+@dp.message(EditProduct.waiting_for_new_description)
+async def edit_desc_save(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    conn = sqlite3.connect("dripzone.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE products SET description = ? WHERE id = ?", (message.text, data["edit_id"]))
+    conn.commit()
+    conn.close()
+    await state.clear()
+    await message.answer("✅ Описание обновлено!")
 
 
-@dp.message(F.text.in_(['📊 Статистика', '📊 Статистика']))
-async def show_stats(message: types.Message):
-  cursor.execute('SELECT COUNT(*) FROM users')
-  users_count = cursor.fetchone()[0]
-  cursor.execute('SELECT COUNT(*) FROM products')
-  products_count = cursor.fetchone()[0]
-  cursor.execute('SELECT COUNT(*) FROM orders')
-  orders_count = cursor.fetchone()[0]
+# Редактирование цены
+@dp.callback_query(F.data.startswith("set_price_"))
+async def edit_price_start(callback: types.CallbackQuery, state: FSMContext):
+    prod_id = callback.data.split("_")[2]
+    await state.update_data(edit_id=prod_id)
+    await state.set_state(EditProduct.waiting_for_new_price)
+    await callback.message.answer("Введи новую цену:")
+    await callback.answer()
 
-  stats_text = (
-      '📊 **Статистика магазину:**\n\n'
-      f'👥 Користувачів у боті: `{users_count}`\n'
-      f'📦 Товарів у каталозі: `{products_count}`\n'
-      f'🛍 Успішних замовлень: `{orders_count}`'
-  )
-  await message.answer(stats_text, parse_mode='Markdown')
-
-
-@dp.message(F.text.in_(['⚙️ Адмін панель', '⚙️ Админ панель']))
-async def show_admin(message: types.Message):
-  kb = InlineKeyboardMarkup(
-      inline_keyboard=[
-          [
-              InlineKeyboardButton(
-                  text='➕ Додати товар', callback_data='add_product'
-              )
-          ]
-      ]
-  )
-  await message.answer('⚙️ **Панель адміністратора:**', reply_markup=kb)
+@dp.message(EditProduct.waiting_for_new_price)
+async def edit_price_save(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    conn = sqlite3.connect("dripzone.db")
+    cursor = conn.cursor()
+    cursor.execute("UPDATE products SET price = ? WHERE id = ?", (message.text, data["edit_id"]))
+    conn.commit()
+    conn.close()
+    await state.clear()
+    await message.answer("✅ Цена обновлена!")
 
 
-@dp.callback_query(F.data == 'add_product')
-async def cb_add_product(callback: types.CallbackQuery, state: FSMContext):
-  await callback.answer()
-  kb = InlineKeyboardMarkup(
-      inline_keyboard=[
-          [InlineKeyboardButton(text='👕 Футболки', callback_data='setcat_Футболки')],
-          [InlineKeyboardButton(text='🧥 Худі', callback_data='setcat_Худі')],
-          [InlineKeyboardButton(text='🧶 Кофти', callback_data='setcat_Кофти')],
-          [InlineKeyboardButton(text='👖 Штани', callback_data='setcat_Штани')],
-          [InlineKeyboardButton(text='👟 Кросівки', callback_data='setcat_Кросівки')],
-          [
-              InlineKeyboardButton(
-                  text='🧢 Аксесуари', callback_data='setcat_Аксесуари'
-              )
-          ],
-      ]
-  )
-  await callback.message.answer(
-      'Вибери категорію для нового товару:', reply_markup=kb
-  )
+# --- Каталог для пользователей ---
+@dp.message(F.text == "🛍 Каталог товаров")
+async def show_catalog(message: types.Message):
+    conn = sqlite3.connect("dripzone.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, description, price, photo FROM products")
+    products = cursor.fetchall()
+    conn.close()
+    
+    if not products:
+        await message.answer("К сожалению, каталог пока пуст.")
+        return
+    
+    for prod in products:
+        prod_id, name, desc, price, photo = prod[0], prod[1], prod[2], prod[3], prod[4]
+        text = f"<b>{name}</b>\n\n{desc}\n\n💰 <b>Цена:</b> {price}"
+        
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🛒 Купить", callback_data=f"buy_{prod_id}")]
+        ])
+        
+        if photo:
+            await message.answer_photo(photo=photo, caption=text, parse_mode="HTML", reply_markup=kb)
+        else:
+            await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
-@dp.callback_query(F.data.startswith('setcat_'))
-async def process_category(callback: types.CallbackQuery, state: FSMContext):
-  await callback.answer()
-  category = callback.data.split('_', 1)[1]
-  await state.update_data(category=category)
-  await callback.message.answer(
-      f'Категорія: **{category}**.\nНадішли **фотографію** товару:'
-  )
-  await state.set_state(AdminState.waiting_for_photo)
+# --- Flask для Render (чтобы веб-сервис не падал по таймауту) ---
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    return "DripZone Bot is running!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
 
-@dp.message(AdminState.waiting_for_photo, F.photo)
-async def process_product_photo(message: types.Message, state: FSMContext):
-  photo_id = message.photo[-1].file_id
-  await state.update_data(photo_id=photo_id)
-  await message.answer('Тепер введи **назву** товару:')
-  await state.set_state(AdminState.waiting_for_name)
-
-
-@dp.message(AdminState.waiting_for_name)
-async def process_product_name(message: types.Message, state: FSMContext):
-  await state.update_data(name=message.text)
-  await message.answer('Тепер введи **опис** товару (матеріали, деталі тощо):')
-  await state.set_state(AdminState.waiting_for_description)
-
-
-@dp.message(AdminState.waiting_for_description)
-async def process_product_desc(message: types.Message, state: FSMContext):
-  await state.update_data(description=message.text)
-  await message.answer('Тепер введи **ціну** товару (наприклад, 1200 грн):')
-  await state.set_state(AdminState.waiting_for_price)
-
-
-@dp.message(AdminState.waiting_for_price)
-async def process_product_price(message: types.Message, state: FSMContext):
-  data = await state.get_data()
-  category = data.get('category')
-  photo_id = data.get('photo_id')
-  name = data.get('name')
-  description = data.get('description')
-  price = message.text
-
-  cursor.execute(
-      'INSERT INTO products (category, name, description, price, photo_id)'
-      ' VALUES (?, ?, ?, ?, ?)',
-      (category, name, description, price, photo_id),
-  )
-  conn.commit()
-
-  await state.clear()
-  await message.answer('✅ Товар успішно додано з фото та описом!')
-
-
+# --- Запуск бота ---
 async def main():
-  logging.basicConfig(level=logging.INFO)
-  await dp.start_polling(bot)
+    # Запускаем Flask в отдельном потоке
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    print("Бот и Flask успешно запущены!")
+    await dp.start_polling(bot)
 
 
-if __name__ == '__main__':
-  asyncio.run(main())
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
