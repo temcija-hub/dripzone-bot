@@ -12,7 +12,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Flask для работы на Render (чтобы бот не засыпал)
+# Flask для работы на Render
 app = Flask("")
 
 
@@ -55,7 +55,6 @@ def init_db():
     cursor.execute("INSERT INTO categories (name) VALUES ('Худі')")  # 1
     cursor.execute("INSERT INTO categories (name) VALUES ('Штани')")  # 2
 
-    # Все 4 товара
     default_products = [
         (
             1,
@@ -142,13 +141,6 @@ async def cmd_start(message: types.Message):
   )
 
 
-# Автоматический перехватчик фото: отправь фото боту, и он пришлет его file_id в чат
-@dp.message(F.photo)
-async def get_photo_id(message: types.Message):
-  photo_id = message.photo[-1].file_id
-  await message.answer(f"File ID цієї картинки:\n`{photo_id}`", parse_mode="Markdown")
-
-
 @dp.callback_query(F.data == "catalog")
 async def show_catalog(callback: types.CallbackQuery):
   conn = sqlite3.connect("shop.db")
@@ -173,6 +165,7 @@ async def show_catalog(callback: types.CallbackQuery):
   await callback.message.edit_text(
       "Оберіть категорію:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
   )
+  await callback.answer()
 
 
 @dp.callback_query(F.data == "back_home")
@@ -181,6 +174,7 @@ async def back_home(callback: types.CallbackQuery):
       "Головне меню DripZone:",
       reply_markup=get_main_menu(callback.from_user.id),
   )
+  await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("cat_"))
@@ -214,6 +208,7 @@ async def show_products(callback: types.CallbackQuery):
   await callback.message.edit_text(
       "Оберіть товар:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
   )
+  await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("prod_"))
@@ -222,8 +217,7 @@ async def show_product_card(callback: types.CallbackQuery):
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
   cursor.execute(
-      "SELECT name, price, sizes, description, photo_id FROM products WHERE"
-      " id = ?",
+      "SELECT name, price, sizes, description FROM products WHERE id = ?",
       (prod_id,),
   )
   product = cursor.fetchone()
@@ -233,7 +227,7 @@ async def show_product_card(callback: types.CallbackQuery):
     await callback.answer("Товар не знайдено!", show_alert=True)
     return
 
-  name, price, sizes, description, photo_id = product
+  name, price, sizes, description = product
 
   text = (
       f"<b>{name}</b>\n\n"
@@ -257,20 +251,9 @@ async def show_product_card(callback: types.CallbackQuery):
       ]
   )
 
-  # Безопасная отправка фото или текста без падений
-  if photo_id and photo_id != "":
-    try:
-      await callback.message.answer_photo(
-          photo=photo_id, caption=text, reply_markup=kb, parse_mode="HTML"
-      )
-    except Exception:
-      await callback.message.answer(
-          text, reply_markup=kb, parse_mode="HTML"
-      )
-  else:
-    await callback.message.edit_text(
-        text, reply_markup=kb, parse_mode="HTML"
-    )
+  await callback.message.edit_text(
+      text, reply_markup=kb, parse_mode="HTML"
+  )
   await callback.answer()
 
 
