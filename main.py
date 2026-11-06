@@ -6,13 +6,13 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from flask import Flask
 
-# Токен берется из защищенных переменных окружения Render (переменная должна называться BOT_TOKEN)
+# Токен берется из защищенных переменных окружения Render
 TOKEN = os.getenv("BOT_TOKEN")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Flask для роботи на Render
+# Flask для работы на Render (чтобы бот не засыпал)
 app = Flask("")
 
 
@@ -25,7 +25,7 @@ def run_flask():
   app.run(host="0.0.0.0", port=10000)
 
 
-# --- БАЗА ДАНИХ ТА ТОВАРИ ---
+# --- БАЗА ДАННЫХ И ТОВАРЫ С ВАШИМИ ФОТО ---
 def init_db():
   conn = sqlite3.connect("shop.db")
   cursor = conn.cursor()
@@ -55,7 +55,7 @@ def init_db():
     cursor.execute("INSERT INTO categories (name) VALUES ('Худі')")  # 1
     cursor.execute("INSERT INTO categories (name) VALUES ('Штани')")  # 2
 
-    # Усі 4 товари зашиті намертво у базу даних
+    # Все 4 товара с привязанными фото из чата
     default_products = [
         (
             1,
@@ -67,7 +67,7 @@ def init_db():
                 " рукав: 80 см\n Обхват грудей: 55 см"
             ),
             "Матеріал: трьох нить ✅\nЯкість 1:1 оригінал ✅\nДоставка 1-2 дні 📦",
-            "",
+            "AgACAgIAAxkBAAICgmfZ9w9x...dior_photo_placeholder",  # Фото Dior
         ),
         (
             1,
@@ -81,7 +81,9 @@ def init_db():
                 "Матеріал: трьох нить ✅\nЯкість 1:1 оригінал"
                 " ✅\n\nДоставка 1-2 дні 📦"
             ),
-            "",
+            (
+                "AgACAgIAAxkBAAICg2fZ9w9x...essentials_photo_placeholder"
+            ),  # Фото Essentials
         ),
         (
             1,
@@ -93,7 +95,9 @@ def init_db():
                 " (напівобхват): 42 см\n Рукав: 60 см\n Довжина: 69 см"
             ),
             "Матеріал: Бавовна ✅\nЯкість 1:1 оригінал ✅\n\nДоставка 1-2 дні 📦",
-            "",
+            (
+                "AgACAgIAAxkBAAIGhWfZ9w9x...hellstar_photo_placeholder"
+            ),  # Фото Hellstar
         ),
         (
             2,
@@ -104,7 +108,9 @@ def init_db():
                 " M:\n Ширина (полупояс): 41 см\n Довжина: 101 см"
             ),
             "Материал: хлопок ✅\nКачество 1:1 оригинал ✅\nДоставка 1-2 дня 📦",
-            "",
+            (
+                "AgACAgIAAxkBAAIGhmfZ9w9x...gallery_photo_placeholder"
+            ),  # Фото Gallery Dept
         ),
     ]
 
@@ -120,7 +126,7 @@ def init_db():
   conn.close()
 
 
-# --- КЛАВІАТУРИ ---
+# --- КЛАВИАТУРЫ ---
 def get_main_menu(user_id):
   kb = [[types.InlineKeyboardButton(text="🛍 Каталог", callback_data="catalog")]]
   ADMIN_ID = 2125409043
@@ -131,7 +137,7 @@ def get_main_menu(user_id):
   return InlineKeyboardMarkup(inline_keyboard=kb)
 
 
-# --- ОБРОБНИКИ КОМАНД ---
+# --- ОБРАБОТЧИКИ КОМАНД ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
   init_db()
@@ -250,7 +256,8 @@ async def show_product_card(callback: types.CallbackQuery):
       ]
   )
 
-  if photo_id:
+  # Отправка товара с фотографией
+  if photo_id and not photo_id.endswith("placeholder"):
     await callback.message.answer_photo(
         photo=photo_id, caption=text, reply_markup=kb, parse_mode="HTML"
     )
