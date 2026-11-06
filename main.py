@@ -17,7 +17,7 @@ ADMIN_ID = 2125409043
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# --- СТАНИ ДЛЯ FSM (РЕДАГУВАННЯ ТА ДОДАВАННЯ) ---
+# --- СТАНИ ДЛЯ FSM ---
 class AdminStates(StatesGroup):
   waiting_for_new_price = State()
   waiting_for_new_desc = State()
@@ -74,11 +74,7 @@ def home():
 
 def run_flask():
   port = int(os.environ.get("PORT", 10000))
-  app.run(host="0.0.0.0", port=port)
-
-def keep_alive():
-  t = Thread(target=run_flask)
-  t.start()
+  app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 # --- КАТАЛОГ ТОВАРІВ ---
 PRODUCTS = {
@@ -298,17 +294,14 @@ async def process_buy(callback: types.CallbackQuery):
   item = PRODUCTS.get(item_key)
   user = callback.from_user
   
-  # Зберігаємо замовлення в БД
   conn = sqlite3.connect("dripzone.db")
   cursor = conn.cursor()
   cursor.execute("INSERT INTO orders (user_id, item_name) VALUES (?, ?)", (user.id, item['name']))
   conn.commit()
   conn.close()
 
-  # Форматуємо нік або ім'я користувача
   username_str = f"@{user.username}" if user.username else f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
 
-  # Відправляємо сповіщення адміну
   admin_text = (
       "🚨 <b>НОВЕ ЗАМОВЛЕННЯ!</b>\n\n"
       f"📦 Товар: <b>{item['name']}</b> ({item['price']})\n"
@@ -320,7 +313,6 @@ async def process_buy(callback: types.CallbackQuery):
   except Exception as e:
     print(f"Помилка відправки адміну: {e}")
 
-  # Повідомлення для покупця з інструкцією
   buyer_text = (
       f"✅ <b>Замовлення на {item['name']} успішно оформлено!</b>\n\n"
       "📋 <b>Що робити далі:</b>\n"
@@ -351,7 +343,7 @@ async def back_home(callback: types.CallbackQuery):
   )
   await callback.answer()
 
-# --- АДМІН-ПАНЕЛЬ: СТАТИСТИКА ТА УПРАВЛІННЯ ТОВАРАМИ ---
+# --- АДМІН-ПАНЕЛЬ ---
 @dp.callback_query(F.data == "admin_stats")
 async def admin_stats(callback: types.CallbackQuery):
   if callback.from_user.id != ADMIN_ID:
@@ -425,7 +417,6 @@ async def admin_edit_item_menu(callback: types.CallbackQuery):
   await callback.message.edit_text(f"Редагування товару: <b>{item['name']}</b>", reply_markup=keyboard, parse_mode="HTML")
   await callback.answer()
 
-# --- ЗМІНА ЦІНИ ЧЕРЕЗ FSM ---
 @dp.callback_query(F.data.startswith("set_price_"))
 async def start_change_price(callback: types.CallbackQuery, state: FSMContext):
   if callback.from_user.id != ADMIN_ID:
@@ -450,7 +441,6 @@ async def save_new_price(message: types.Message, state: FSMContext):
   
   await state.clear()
 
-# --- ЗМІНА ОПИСУ ЧЕРЕЗ FSM ---
 @dp.callback_query(F.data.startswith("set_desc_"))
 async def start_change_desc(callback: types.CallbackQuery, state: FSMContext):
   if callback.from_user.id != ADMIN_ID:
@@ -475,7 +465,6 @@ async def save_new_desc(message: types.Message, state: FSMContext):
   
   await state.clear()
 
-# --- ДОДАВАННЯ НОВОГО ТОВАРУ ЧЕРЕЗ FSM ---
 @dp.callback_query(F.data == "adm_add_item")
 async def start_add_item(callback: types.CallbackQuery, state: FSMContext):
   if callback.from_user.id != ADMIN_ID:
@@ -517,7 +506,7 @@ async def add_item_photo(message: types.Message, state: FSMContext):
   PRODUCTS[key] = {
       "name": data.get("new_name"),
       "price": data.get("new_price"),
-      "category": "hoodies", # Можна змінити за потреби
+      "category": "hoodies",
       "desc": data.get("new_desc"),
       "file_id": photo_file_id
   }
@@ -541,8 +530,13 @@ async def admin_back(callback: types.CallbackQuery):
 
 
 async def main():
-  keep_alive()
-  print("Бот та Flask-сервер успішно запущено!")
+  # Запускаємо Flask у фоновому потоці
+  flask_thread = Thread(target=run_flask)
+  flask_thread.daemon = True
+  flask_thread.start()
+  print("Flask-сервер запущено у фоні!")
+
+  print("Бот запущено через поллінг!")
   await dp.start_polling(bot)
 
 
