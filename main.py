@@ -2,12 +2,12 @@ import asyncio
 import logging
 import os
 import threading
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from flask import Flask
 
-# 1. Настройка Flask-сервера для удержания порта
+# Flask-сервер для удержания порта Render
 app = Flask('')
 
 
@@ -21,12 +21,11 @@ def run_web():
   app.run(host='0.0.0.0', port=port)
 
 
-# Запускаем Flask в фоновом потоке
 t = threading.Thread(target=run_web)
 t.daemon = True
 t.start()
 
-# 2. Инициализация бота aiogram v3
+# Инициализация бота
 TOKEN = '8889115088:AAGJ_IO4jvhmXm8g8c2osXmk29iCbW_ACVo'
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -54,6 +53,43 @@ async def send_welcome(message: types.Message):
       'Вітаю у DRIPZONE Shop! Вибери потрібний розділ:',
       reply_markup=shop_keyboard,
   )
+
+
+# Обработчики нажатий на инлайн-кнопки
+@dp.callback_query(F.data == 'catalog')
+async def cb_catalog(callback: types.CallbackQuery):
+  await callback.message.answer('📦 Розділ каталогу наповнюється...')
+  await callback.answer()
+
+
+@dp.callback_query(F.data == 'cart')
+async def cb_cart(callback: types.CallbackQuery):
+  await callback.message.answer('🛒 Ваш кошик порожній.')
+  await callback.answer()
+
+
+@dp.callback_query(F.data == 'reviews')
+async def cb_reviews(callback: types.CallbackQuery):
+  await callback.message.answer('💬 Тут будуть відгуки покупців.')
+  await callback.answer()
+
+
+@dp.callback_query(F.data == 'sizes')
+async def cb_sizes(callback: types.CallbackQuery):
+  await callback.message.answer('📏 Доступні розміри: S, M, L, XL, XXL.')
+  await callback.answer()
+
+
+@dp.callback_query(F.data == 'admin_panel')
+async def cb_admin(callback: types.CallbackQuery):
+  await callback.message.answer('⚙️ Панель адміністратора.')
+  await callback.answer()
+
+
+@dp.callback_query(F.data == 'statistics')
+async def cb_stats(callback: types.CallbackQuery):
+  await callback.message.answer('📊 Статистика магазину.')
+  await callback.answer()
 
 
 async def main():
