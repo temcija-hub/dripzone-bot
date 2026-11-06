@@ -3,7 +3,7 @@ import logging
 import os
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from flask import Flask
 from threading import Thread
 
@@ -83,6 +83,11 @@ def get_main_keyboard(user_id):
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
   keyboard = get_main_keyboard(message.from_user.id)
+  
+  # Спочатку примусово прибираємо будь-які залишки кнопок під клавіатурою
+  await message.answer("Завантаження меню...", reply_markup=ReplyKeyboardRemove())
+  
+  # Відправляємо головне меню з картинкою або текстом
   await message.answer(
       "Вітаємо у **DripZone**! 🔥\nОбирай стильний одяг та оформлюй замовлення в кілька кліків.",
       reply_markup=keyboard,
