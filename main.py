@@ -4,7 +4,7 @@ import os
 import re
 import sqlite3
 import time
-import requests
+import urllib.request
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -20,7 +20,6 @@ ADMIN_ID = 2125409043
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# --- СТАНИ ДЛЯ FSM ---
 class AdminStates(StatesGroup):
     waiting_for_new_price = State()
     waiting_for_new_desc = State()
@@ -30,7 +29,6 @@ class AdminStates(StatesGroup):
     waiting_for_add_desc = State()
     waiting_for_add_photo = State()
 
-# --- БАЗА ДАНИХ SQLite ---
 def init_db():
     conn = sqlite3.connect("dripzone.db")
     cursor = conn.cursor()
@@ -77,7 +75,6 @@ def get_stats():
     conn.close()
     return users_count, orders_count
 
-# --- ФЛАСК СЕРВЕР ТА ПІНГ-СИСТЕМА (ЩОБ НЕ ЗАСИНАВ 24/7) ---
 app = Flask("")
 
 @app.route("/")
@@ -89,20 +86,16 @@ def run_flask():
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 def self_ping():
-    # Автоматичний пінг кожні 4 хвилини, щоб Render не присипляв контейнер
     time.sleep(10)
     while True:
         try:
             render_url = os.environ.get("RENDER_EXTERNAL_URL")
-            if render_url:
-                requests.get(render_url)
-            else:
-                requests.get("http://127.0.0.1:10000/")
+            url = render_url if render_url else "http://127.0.0.1:10000/"
+            urllib.request.urlopen(url)
         except Exception:
             pass
         time.sleep(240)
 
-# --- КАТАЛОГ ТОВАРІВ ---
 PRODUCTS = {
     "dior": {
         "name": "Зіпка Dior",
@@ -169,7 +162,6 @@ PRODUCTS = {
     },
 }
 
-# --- КЛАВІАТУРА ВНИЗУ ---
 def get_reply_keyboard(user_id):
     keyboard = [
         [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")],
@@ -189,7 +181,6 @@ async def cmd_start(message: types.Message):
         parse_mode="Markdown",
     )
 
-# --- КНОПКИ НИЖНЬОГО МЕНЮ ---
 @dp.message(F.text == "🛍 Каталог")
 async def text_catalog(message: types.Message):
     keyboard = InlineKeyboardMarkup(
@@ -333,7 +324,6 @@ async def text_admin(message: types.Message):
     )
     await message.answer("⚙️ Панель адміністратора DripZone:", reply_markup=keyboard)
 
-# --- КАТЕГОРІЇ КАТАЛОГУ ---
 @dp.callback_query(F.data.startswith("cat_"))
 async def show_category_items(callback: types.CallbackQuery):
     cat = callback.data.split("_")[1]
@@ -404,7 +394,6 @@ async def show_product(callback: types.CallbackQuery):
 
     await callback.answer()
 
-# --- ДОДАВАННЯ В КОШИК ---
 @dp.callback_query(F.data.startswith("buy_"))
 async def process_buy(callback: types.CallbackQuery):
     item_key = callback.data.split("_")[1]
@@ -432,7 +421,6 @@ async def back_home(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-# --- АДМІН-ПАНЕЛЬ ---
 @dp.callback_query(F.data == "admin_stats")
 async def admin_stats(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
@@ -618,20 +606,14 @@ async def admin_back(callback: types.CallbackQuery):
     await callback.answer()
 
 async def main():
-    # 1. Запуск Flask веб-сервера для Render
     flask_thread = Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
-    print("Flask-сервер запущено у фоні!")
 
-    # 2. Запуск фонового ПІНГА, щоб Render не впадав у сон
     ping_thread = Thread(target=self_ping)
     ping_thread.daemon = True
     ping_thread.start()
-    print("Self-ping фоновий процес запущено!")
 
-    # 3. Запуск самого Telegram-бота
-    print("Бот запущено через поллінг!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
